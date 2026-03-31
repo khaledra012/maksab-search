@@ -239,6 +239,18 @@ function getServiceLabel(service: string): string {
   return labels[service] || service;
 }
 
+function asNonEmptyString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function stripUrlPrefix(value: unknown, maxLength?: number): string {
+  const text = asNonEmptyString(value);
+  if (!text) return "";
+
+  const cleaned = text.replace(/https?:\/\/(www\.)?/i, "").replace(/\/+$/, "");
+  return typeof maxLength === "number" ? cleaned.slice(0, maxLength) : cleaned;
+}
+
 // ===== أثر نوعي بدلاً من أرقام مالية =====
 function getImpactOnTrust(analysis: PDFReportData["analysis"], lead: PDFReportData["lead"]): string {
   const score = analysis?.leadPriorityScore || 5;
@@ -429,6 +441,10 @@ function buildRadarChart(analysis: PDFReportData["analysis"], lead: PDFReportDat
 
 function buildPlatformBlocks(lead: PDFReportData["lead"], analysis: PDFReportData["analysis"]): string {
   const score = analysis?.leadPriorityScore || 5;
+  lead.instagramUrl = asNonEmptyString(lead.instagramUrl);
+  lead.tiktokUrl = asNonEmptyString(lead.tiktokUrl);
+  lead.snapchatUrl = asNonEmptyString(lead.snapchatUrl);
+  lead.twitterUrl = asNonEmptyString(lead.twitterUrl);
   const platforms = [
     { name: "إنستغرام", icon: "📸", active: !!lead.instagramUrl, score: lead.instagramUrl ? Math.min(score + 1, 10) : 0, color: "#e1306c", bg: "rgba(225,48,108,0.08)", border: "rgba(225,48,108,0.25)", handle: lead.instagramUrl ? lead.instagramUrl.replace(/.*instagram\.com\//, "@").replace(/\/$/, "") : "غير موجود" },
     { name: "تيك توك", icon: "🎵", active: !!lead.tiktokUrl, score: lead.tiktokUrl ? Math.min(score, 10) : 0, color: "#ff0050", bg: "rgba(255,0,80,0.08)", border: "rgba(255,0,80,0.25)", handle: lead.tiktokUrl ? lead.tiktokUrl.replace(/.*tiktok\.com\/@/, "@").replace(/\/$/, "") : "غير موجود" },
@@ -500,7 +516,7 @@ export function generateReportHTML(data: PDFReportData): string {
   const styleKeywords: string[] = (style.brandKeywords as string[]) || [];
   const styleClosing = style.closingStatement || "";
   const includeSeasonSection = style.includeSeasonSection !== false;
-  const waNumber = style.whatsappNumber?.replace(/[^0-9]/g, "") || "966500000000";
+  const waNumber = asNonEmptyString(style.whatsappNumber).replace(/[^0-9]/g, "") || "966500000000";
   const companyPhone = style.companyPhone || style.whatsappNumber || "+966-50-000-0000";
   const companyEmail = style.companyEmail || "info@maksab.sa";
   const companyWebsite = style.companyWebsite || "www.maksab.sa";
@@ -644,6 +660,7 @@ export function generateReportHTML(data: PDFReportData): string {
           const pi = getPlatformIcon(sa.platform);
           const pl = getPlatformLabel(sa.platform);
           const sc = sa.overallScore;
+          const profileUrl = stripUrlPrefix(sa.profileUrl, 45);
           const scColor = sc != null ? (sc >= 7 ? "#22c55e" : sc >= 5 ? "#f59e0b" : "#ef4444") : "#64748b";
           // تحويل hex لون المنصة إلى RGB
           const hexToRgb = (hex: string) => { const r = parseInt(hex.slice(1,3),16); const g = parseInt(hex.slice(3,5),16); const b = parseInt(hex.slice(5,7),16); return `${r},${g},${b}`; };
@@ -655,7 +672,7 @@ export function generateReportHTML(data: PDFReportData): string {
                 <span style="font-size:20px;">${pi}</span>
                 <div>
                   <div style="font-size:12px;font-weight:900;color:#f1f5f9;letter-spacing:0.3px;">${pl}</div>
-                  ${sa.profileUrl ? `<div style="font-size:8px;color:rgba(${pcRgb},0.8);margin-top:1px;">${sa.profileUrl.replace(/https?:\/\/(www\.)?/,"").slice(0,45)}</div>` : ""}
+                  ${profileUrl ? `<div style="font-size:8px;color:rgba(${pcRgb},0.8);margin-top:1px;">${profileUrl}</div>` : ""}
                 </div>
               </div>
               ${sc != null ? `<div style="display:flex;align-items:center;gap:6px;">
@@ -1131,13 +1148,14 @@ export function generateReportHTML(data: PDFReportData): string {
               const scoreColor = comp.seoScore >= 7 ? "#22c55e" : comp.seoScore >= 5 ? "#f59e0b" : "#ef4444";
               const scoreWidth = comp.seoScore * 10;
               const rank = idx + 1;
+              const competitorUrl = stripUrlPrefix(comp.url, 40);
               const rankColors = ["#fbbf24","#94a3b8","#cd7f32","#64748b"];
               return `<div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:10px 12px;">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
                   <div style="width:22px;height:22px;border-radius:50%;background:${rankColors[idx]}22;border:1.5px solid ${rankColors[idx]};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;color:${rankColors[idx]};flex-shrink:0;">${rank}</div>
                   <div style="flex:1;">
                     <div style="font-size:10px;font-weight:800;color:#f1f5f9;">${comp.name}</div>
-                    <div style="font-size:8px;color:#475569;">${comp.url.replace(/https?:\/\/(www\.)?/,"").slice(0,40)}</div>
+                    <div style="font-size:8px;color:#475569;">${competitorUrl || "بدون رابط"}</div>
                   </div>
                   <div style="text-align:center;">
                     <div style="font-size:18px;font-weight:900;color:${scoreColor};">${comp.seoScore}</div>
@@ -1162,8 +1180,8 @@ export function generateReportHTML(data: PDFReportData): string {
     const clientSeoScore = seo?.localSeoScore ?? (seo?.overallSeoHealth === "good" ? 7 : seo?.overallSeoHealth === "excellent" ? 9 : seo?.overallSeoHealth === "average" ? 5 : 3);
     const maxScore = Math.max(clientSeoScore, ...comps.map(c => c.seoScore));
     const allEntities = [
-      { name: lead.companyName, url: lead.website || "", seoScore: clientSeoScore, strengths: (seo?.competitiveAdvantages || [analysis?.primaryOpportunity || ""].filter(Boolean)) as string[], isClient: true },
-      ...comps.slice(0, 4).map(c => ({ ...c, isClient: false }))
+      { name: lead.companyName, url: asNonEmptyString(lead.website), seoScore: clientSeoScore, strengths: (seo?.competitiveAdvantages || [analysis?.primaryOpportunity || ""].filter(Boolean)) as string[], isClient: true },
+      ...comps.slice(0, 4).map(c => ({ ...c, url: asNonEmptyString(c.url), isClient: false }))
     ];
     return `<div style="${PAGE_STYLE}">
     <div style="position:absolute;top:-80px;left:-60px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(239,68,68,0.06) 0%,transparent 70%);pointer-events:none;"></div>
@@ -1177,11 +1195,12 @@ export function generateReportHTML(data: PDFReportData): string {
         ${allEntities.map((e, i) => {
           const scoreColor = e.seoScore >= 7 ? "#22c55e" : e.seoScore >= 5 ? "#f59e0b" : "#ef4444";
           const scoreWidth = Math.round((e.seoScore / 10) * 100);
+          const entityUrl = stripUrlPrefix(e.url, 22);
           const rankEmoji = e.isClient ? "⭐" : i === 1 ? "🥇" : i === 2 ? "🥈" : i === 3 ? "🥉" : "🔵";
           return `<div style="background:${e.isClient ? "linear-gradient(135deg,rgba(34,197,94,0.08),rgba(6,182,212,0.05))" : "rgba(255,255,255,0.02)"};border:1.5px solid ${e.isClient ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.07)"};border-radius:12px;padding:10px;text-align:center;">
             <div style="font-size:18px;margin-bottom:4px;">${rankEmoji}</div>
             <div style="font-size:9px;font-weight:800;color:${e.isClient ? "#86efac" : "#f1f5f9"};margin-bottom:2px;line-height:1.3;">${e.name.slice(0, 18)}${e.name.length > 18 ? "..." : ""}</div>
-            ${e.url ? `<div style="font-size:7px;color:#334155;margin-bottom:6px;">${e.url.replace(/https?:\/\/(www\.)?/, "").slice(0, 22)}</div>` : `<div style="margin-bottom:6px;"></div>`}
+            ${entityUrl ? `<div style="font-size:7px;color:#334155;margin-bottom:6px;">${entityUrl}</div>` : `<div style="margin-bottom:6px;"></div>`}
             <div style="font-size:24px;font-weight:900;color:${scoreColor};">${e.seoScore}</div>
             <div style="font-size:7px;color:#475569;margin-bottom:6px;">SEO /10</div>
             <div style="height:5px;background:rgba(255,255,255,0.06);border-radius:3px;"><div style="height:100%;width:${scoreWidth}%;background:linear-gradient(90deg,${scoreColor},${scoreColor}99);border-radius:3px;"></div></div>
