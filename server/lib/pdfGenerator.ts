@@ -2,9 +2,10 @@
  * PDF Generator - تحويل HTML إلى PDF حقيقي باستخدام Puppeteer
  * يستخدم Chromium المثبت على الـ server
  */
+import fs from "node:fs";
+import path from "node:path";
+import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
-
-const CHROMIUM_PATH = "/usr/bin/chromium-browser";
 
 export interface PdfGenerationOptions {
   html: string;
@@ -19,6 +20,53 @@ export interface PdfGenerationOptions {
   };
 }
 
+function resolveLocalChromiumPath(): string | null {
+  const overridePaths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_BIN,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const linuxPaths = [
+    "/usr/lib/chromium-browser/chromium-browser",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/snap/bin/chromium",
+  ];
+  const macPaths = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  ];
+  const localAppData = process.env.LOCALAPPDATA ?? "";
+  const programFiles = process.env.PROGRAMFILES ?? process.env.ProgramFiles ?? "";
+  const programFilesX86 = process.env["ProgramFiles(x86)"] ?? "";
+  const windowsPaths = [
+    path.join(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+    path.join(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
+    path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+    path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+    path.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
+    path.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+  ];
+  const candidates = [
+    ...overridePaths,
+    ...(process.platform === "win32"
+      ? windowsPaths
+      : process.platform === "darwin"
+        ? macPaths
+        : linuxPaths),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 export async function generatePdfFromHtml(options: PdfGenerationOptions): Promise<Buffer> {
   const {
     html,
@@ -30,20 +78,34 @@ export async function generatePdfFromHtml(options: PdfGenerationOptions): Promis
   let browser = null;
 
   try {
+    const chromiumPath = resolveLocalChromiumPath();
+    const executablePath = chromiumPath || (await chromium.executablePath());
+    const launchArgs = chromiumPath
+      ? [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--no-first-run",
+          "--no-zygote",
+          "--disable-gpu",
+          "--disable-extensions",
+          "--disable-software-rasterizer",
+        ]
+      : [
+          ...chromium.args,
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--single-process",
+        ];
+
     browser = await puppeteer.launch({
-      executablePath: CHROMIUM_PATH,
+      executablePath,
       headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-gpu",
-        "--disable-extensions",
-        "--disable-software-rasterizer",
-      ],
+      args: launchArgs,
+      defaultViewport: { width: 1200, height: 900 },
     });
 
     const page = await browser.newPage();
@@ -53,6 +115,9 @@ export async function generatePdfFromHtml(options: PdfGenerationOptions): Promis
       waitUntil: "networkidle0",
       timeout: 30000,
     });
+
+    // Give remote fonts/images a brief moment to settle before printing.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
 
     // Generate PDF
     const pdfBuffer = await page.pdf({

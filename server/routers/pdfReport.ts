@@ -7,6 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { leads, seoAdvancedAnalysis, websiteAnalyses, socialAnalyses as socialAnalysesTable, realSocialSnapshots } from "../../drizzle/schema";
 import { eq, isNotNull, ne, or, desc } from "drizzle-orm";
+import { generatePdfFromHtml } from "../lib/pdfGenerator";
 import { generateReportHTML, type PDFReportData } from "../lib/pdfReportEngine";
 import { storagePut } from "../storage";
 import { getActiveSeasonForBusiness } from "./seasons";
@@ -450,9 +451,10 @@ export const pdfReportRouter = router({
         }
 
         const html = generateReportHTML(reportData);
+        const pdfBuffer = await generatePdfFromHtml({ html, format: "A4" });
 
-        const fileKey = `reports/lead-${lead.id}-${input.reportType}-${Date.now()}.html`;
-        const { url } = await storagePut(fileKey, Buffer.from(html, "utf-8"), "text/html");
+        const fileKey = `reports/lead-${lead.id}-${input.reportType}-${Date.now()}.pdf`;
+        const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
 
         await db.update(leads)
           .set({
@@ -465,7 +467,8 @@ export const pdfReportRouter = router({
           .where(eq(leads.id, input.leadId));
 
         return { success: true, reportUrl: url, leadName: lead.companyName };
-      } catch {
+      } catch (error) {
+        console.error(`[PDF Report] Failed to generate report for lead ${input.leadId}:`, error);
         await db.update(leads)
           .set({ pdfGenerationStatus: "failed" as const })
           .where(eq(leads.id, input.leadId));
@@ -646,8 +649,9 @@ export const pdfReportRouter = router({
               }));
             }
             const html = generateReportHTML(reportData);
-            const fileKey = `reports/lead-${leadId}-${input.reportType}-${Date.now()}.html`;
-            const { url } = await storagePut(fileKey, Buffer.from(html, "utf-8"), "text/html");
+            const pdfBuffer = await generatePdfFromHtml({ html, format: "A4" });
+            const fileKey = `reports/lead-${leadId}-${input.reportType}-${Date.now()}.pdf`;
+            const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
             await db.update(leads)
               .set({
                 pdfGenerationStatus: "ready" as const,

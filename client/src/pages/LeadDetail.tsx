@@ -219,9 +219,9 @@ export default function LeadDetail() {
       const result = await generateBeautifulReport.mutateAsync({ leadId: id, reportType: "client_facing" });
       if (result.reportUrl) {
         setPdfUrl(result.reportUrl);
-        // فتح التقرير في نافذة جديدة (HTML مع زر طباعة/حفظ PDF)
+        // فتح ملف PDF الناتج مباشرة
         window.open(result.reportUrl, "_blank");
-        toast.success(`تم توليد التقرير لـ ${result.leadName} — افتح النافذة الجديدة واضغط "حفظ PDF"`);
+        toast.success(`تم توليد تقرير PDF لـ ${result.leadName}`);
       }
     } catch (e: any) {
       // fallback: استخدام report.generatePDF القديم
