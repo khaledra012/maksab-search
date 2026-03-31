@@ -1,0 +1,1 @@
+ALTER TABLE `whatsapp_settings` ADD `autoArchiveDays` int DEFAULT 0 NOT NULL;

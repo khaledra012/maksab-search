@@ -1,0 +1,17 @@
+{
+  "query": "CREATE TABLE `interest_alerts` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`chatId` int,\n\t`leadId` int,\n\t`phone` varchar(30) NOT NULL,\n\t`contactName` varchar(200),\n\t`triggerMessage` text,\n\t`interestScore` int NOT NULL DEFAULT 0,\n\t`detectedKeywords` json DEFAULT ('[]'),\n\t`status` enum('pending','transferred','dismissed') NOT NULL DEFAULT 'pending',\n\t`handoffAccountId` varchar(64),\n\t`handoffPhone` varchar(30),\n\t`transferredAt` timestamp,\n\t`transferredBy` varchar(100),\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `interest_alerts_id` PRIMARY KEY(`id`)\n);\nCREATE TABLE `whatsapp_accounts` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`accountId` varchar(64) NOT NULL,\n\t`label` varchar(100) NOT NULL,\n\t`phoneNumber` varchar(30) NOT NULL,\n\t`role` enum('bulk_sender','human_handoff','both') NOT NULL DEFAULT 'bulk_sender',\n\t`assignedEmployee` varchar(100),\n\t`isActive` boolean NOT NULL DEFAULT true,\n\t`sortOrder` int NOT NULL DEFAULT 0,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `whatsapp_accounts_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `whatsapp_accounts_accountId_unique` UNIQUE(`accountId`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 28NYsasnv8DUFoB.root --database 3NWXhYQbbwVSepwuoQMygc --execute CREATE TABLE `interest_alerts` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`chatId` int,\n\t`leadId` int,\n\t`phone` varchar(30) NOT NULL,\n\t`contactName` varchar(200),\n\t`triggerMessage` text,\n\t`interestScore` int NOT NULL DEFAULT 0,\n\t`detectedKeywords` json DEFAULT ('[]'),\n\t`status` enum('pending','transferred','dismissed') NOT NULL DEFAULT 'pending',\n\t`handoffAccountId` varchar(64),\n\t`handoffPhone` varchar(30),\n\t`transferredAt` timestamp,\n\t`transferredBy` varchar(100),\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `interest_alerts_id` PRIMARY KEY(`id`)\n);\nCREATE TABLE `whatsapp_accounts` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`accountId` varchar(64) NOT NULL,\n\t`label` varchar(100) NOT NULL,\n\t`phoneNumber` varchar(30) NOT NULL,\n\t`role` enum('bulk_sender','human_handoff','both') NOT NULL DEFAULT 'bulk_sender',\n\t`assignedEmployee` varchar(100),\n\t`isActive` boolean NOT NULL DEFAULT true,\n\t`sortOrder` int NOT NULL DEFAULT 0,\n\t`notes` text,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `whatsapp_accounts_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `whatsapp_accounts_accountId_unique` UNIQUE(`accountId`)\n);",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your TiDB version for the right syntax to use line 9 column 39 near \"'[]'),",
+    "\t`status` enum('pending','transferred','dismissed') NOT NULL DEFAULT 'pending',",
+    "\t`handoffAccountId` varchar(64),",
+    "\t`handoffPhone` varchar(30),",
+    "\t`transferredAt` timestamp,",
+    "\t`transferredBy` varchar(100),",
+    "\t`notes` text,",
+    "\t`createdAt` timestamp NOT NULL DEFAULT (now()),",
+    "\tCONSTRAINT `interest_alerts_id` PRIMARY KEY(`id`)",
+    ")\""
+  ]
+}

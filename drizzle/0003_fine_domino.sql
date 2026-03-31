@@ -1,0 +1,1 @@
+ALTER TABLE `leads` ADD `socialSince` varchar(20);

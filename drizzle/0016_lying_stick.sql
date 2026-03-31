@@ -1,0 +1,62 @@
+CREATE TABLE `campaigns` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`name` varchar(200) NOT NULL,
+	`description` text,
+	`accountId` varchar(64),
+	`totalSent` int NOT NULL DEFAULT 0,
+	`totalDelivered` int NOT NULL DEFAULT 0,
+	`totalReplied` int NOT NULL DEFAULT 0,
+	`totalFailed` int NOT NULL DEFAULT 0,
+	`responseRate` float DEFAULT 0,
+	`status` enum('draft','running','completed','paused','failed') NOT NULL DEFAULT 'draft',
+	`startedAt` timestamp,
+	`completedAt` timestamp,
+	`createdBy` int,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `campaigns_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `reminders` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`leadId` int NOT NULL,
+	`leadName` varchar(200) NOT NULL,
+	`leadPhone` varchar(30),
+	`leadCity` varchar(100),
+	`leadBusinessType` varchar(200),
+	`reminderType` enum('follow_up','call','message','meeting','custom') NOT NULL DEFAULT 'follow_up',
+	`title` varchar(300) NOT NULL,
+	`notes` text,
+	`dueDate` timestamp NOT NULL,
+	`status` enum('pending','done','snoozed','cancelled') NOT NULL DEFAULT 'pending',
+	`priority` enum('low','medium','high','urgent') NOT NULL DEFAULT 'medium',
+	`assignedTo` varchar(100),
+	`createdBy` int,
+	`completedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `reminders_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `weekly_reports` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`weekStart` timestamp NOT NULL,
+	`weekEnd` timestamp NOT NULL,
+	`totalLeads` int NOT NULL DEFAULT 0,
+	`newLeads` int NOT NULL DEFAULT 0,
+	`analyzedLeads` int NOT NULL DEFAULT 0,
+	`messagesSent` int NOT NULL DEFAULT 0,
+	`messagesReceived` int NOT NULL DEFAULT 0,
+	`responseRate` float DEFAULT 0,
+	`hotLeads` int NOT NULL DEFAULT 0,
+	`completedReminders` int NOT NULL DEFAULT 0,
+	`pendingReminders` int NOT NULL DEFAULT 0,
+	`topCities` json,
+	`topBusinessTypes` json,
+	`summaryText` text,
+	`pdfUrl` text,
+	`sentViaWhatsapp` boolean NOT NULL DEFAULT false,
+	`sentAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `weekly_reports_id` PRIMARY KEY(`id`)
+);

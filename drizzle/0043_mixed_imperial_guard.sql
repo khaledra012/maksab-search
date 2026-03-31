@@ -1,0 +1,2 @@
+ALTER TABLE `leads` MODIFY COLUMN `stage` enum('new','contacted','interested','price_offer','meeting','won','lost','deferred','cancelled') NOT NULL DEFAULT 'new';--> statement-breakpoint
+ALTER TABLE `whatsapp_chats` MODIFY COLUMN `stage` enum('new','contacted','interested','price_offer','meeting','won','lost','deferred','cancelled') NOT NULL DEFAULT 'new';

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE `ai_settings` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`provider` enum('openai','builtin') NOT NULL DEFAULT 'builtin',\n\t`openaiApiKey` text,\n\t`openaiAssistantId` varchar(100),\n\t`openaiModel` varchar(50) NOT NULL DEFAULT 'gpt-4o-mini',\n\t`systemPrompt` text,\n\t`businessContext` text,\n\t`globalAutoReplyEnabled` boolean NOT NULL DEFAULT false,\n\t`temperature` float NOT NULL DEFAULT 0.7,\n\t`maxTokens` int NOT NULL DEFAULT 500,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `ai_settings_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `whatsapp_chats` ADD `aiAutoReplyEnabled` boolean DEFAULT true NOT NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 28NYsasnv8DUFoB.root --database 3NWXhYQbbwVSepwuoQMygc --execute CREATE TABLE `ai_settings` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`provider` enum('openai','builtin') NOT NULL DEFAULT 'builtin',\n\t`openaiApiKey` text,\n\t`openaiAssistantId` varchar(100),\n\t`openaiModel` varchar(50) NOT NULL DEFAULT 'gpt-4o-mini',\n\t`systemPrompt` text,\n\t`businessContext` text,\n\t`globalAutoReplyEnabled` boolean NOT NULL DEFAULT false,\n\t`temperature` float NOT NULL DEFAULT 0.7,\n\t`maxTokens` int NOT NULL DEFAULT 500,\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\t`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `ai_settings_id` PRIMARY KEY(`id`)\n);\nALTER TABLE `whatsapp_chats` ADD `aiAutoReplyEnabled` boolean DEFAULT true NOT NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2027
+}

@@ -1,0 +1,9 @@
+{
+  "query": "\nCREATE TABLE IF NOT EXISTS `whatsapp_messages` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `leadId` int NOT NULL,\n  `phone` varchar(20) NOT NULL,\n  `message` text NOT NULL,\n  `messageType` enum('individual','bulk') NOT NULL DEFAULT 'individual',\n  `bulkJobId` varchar(64),\n  `status` enum('sent','pending','failed') NOT NULL DEFAULT 'sent',\n  `sentAt` timestamp NOT NULL DEFAULT (now()),\n  CONSTRAINT `whatsapp_messages_id` PRIMARY KEY(`id`)\n);\n\nALTER TABLE `leads` ADD COLUMN IF NOT EXISTS `hasWhatsapp` enum('unknown','yes','no') DEFAULT 'unknown' NOT NULL;\nALTER TABLE `leads` ADD COLUMN IF NOT EXISTS `whatsappCheckedAt` timestamp;\nALTER TABLE `leads` ADD COLUMN IF NOT EXISTS `lastWhatsappSentAt` timestamp;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 28NYsasnv8DUFoB.root --database 3NWXhYQbbwVSepwuoQMygc --execute \nCREATE TABLE IF NOT EXISTS `whatsapp_messages` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `leadId` int NOT NULL,\n  `phone` varchar(20) NOT NULL,\n  `message` text NOT NULL,\n  `messageType` enum('individual','bulk') NOT NULL DEFAULT 'individual',\n  `bulkJobId` varchar(64),\n  `status` enum('sent','pending','failed') NOT NULL DEFAULT 'sent',\n  `sentAt` timestamp NOT NULL DEFAULT (now()),\n  CONSTRAINT `whatsapp_messages_id` PRIMARY KEY(`id`)\n);\n\nALTER TABLE `leads` ADD COLUMN IF NOT EXISTS `hasWhatsapp` enum('unknown','yes','no') DEFAULT 'unknown' NOT NULL;\nALTER TABLE `leads` ADD COLUMN IF NOT EXISTS `whatsappCheckedAt` timestamp;\nALTER TABLE `leads` ADD COLUMN IF NOT EXISTS `lastWhatsappSentAt` timestamp;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2155
+}

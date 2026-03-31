@@ -1,0 +1,20 @@
+CREATE TABLE `report_schedules` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`isEnabled` boolean NOT NULL DEFAULT false,
+	`dayOfWeek` int NOT NULL DEFAULT 0,
+	`hour` int NOT NULL DEFAULT 8,
+	`minute` int NOT NULL DEFAULT 0,
+	`timezone` varchar(100) NOT NULL DEFAULT 'Asia/Riyadh',
+	`whatsappAccountId` varchar(255),
+	`recipientPhone` varchar(50),
+	`includeLeadsStats` boolean NOT NULL DEFAULT true,
+	`includeWhatsappStats` boolean NOT NULL DEFAULT true,
+	`includeEmployeeStats` boolean NOT NULL DEFAULT true,
+	`lastSentAt` timestamp,
+	`lastSentStatus` enum('success','failed','pending') DEFAULT 'pending',
+	`lastSentError` text,
+	`totalSent` int NOT NULL DEFAULT 0,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `report_schedules_id` PRIMARY KEY(`id`)
+);

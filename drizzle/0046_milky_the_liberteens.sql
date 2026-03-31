@@ -1,0 +1,1 @@
+ALTER TABLE `social_analyses` ADD `screenshotUrl` varchar(1000);
