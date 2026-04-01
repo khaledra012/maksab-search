@@ -20,6 +20,34 @@ export interface PdfGenerationOptions {
   };
 }
 
+const CONTENT_LOAD_TIMEOUT_MS = 15000;
+const NETWORK_SETTLE_TIMEOUT_MS = 5000;
+const FONT_READY_TIMEOUT_MS = 2500;
+const PDF_RENDER_TIMEOUT_MS = 20000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  errorMessage: string,
+): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 function resolveLocalChromiumPath(): string | null {
   const overridePaths = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -106,27 +134,49 @@ export async function generatePdfFromHtml(options: PdfGenerationOptions): Promis
       headless: true,
       args: launchArgs,
       defaultViewport: { width: 1200, height: 900 },
+      protocolTimeout: 30000,
     });
 
     const page = await browser.newPage();
+    page.setDefaultTimeout(CONTENT_LOAD_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(CONTENT_LOAD_TIMEOUT_MS);
 
-    // Set content with full HTML
+    // Avoid hanging forever on slow third-party fonts/screenshots inside reports.
     await page.setContent(html, {
-      waitUntil: "networkidle0",
-      timeout: 30000,
+      waitUntil: "domcontentloaded",
+      timeout: CONTENT_LOAD_TIMEOUT_MS,
     });
 
-    // Give remote fonts/images a brief moment to settle before printing.
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await page.emulateMediaType("screen");
+    await page.waitForNetworkIdle({
+      idleTime: 750,
+      timeout: NETWORK_SETTLE_TIMEOUT_MS,
+    }).catch(() => undefined);
+    await withTimeout(
+      page.evaluate(async () => {
+        const fonts = (document as Document & {
+          fonts?: { ready?: Promise<unknown> };
+        }).fonts;
+        if (fonts?.ready) {
+          await fonts.ready;
+        }
+      }),
+      FONT_READY_TIMEOUT_MS,
+      "Timed out while waiting for remote fonts",
+    ).catch(() => undefined);
+    await sleep(800);
 
-    // Generate PDF
-    const pdfBuffer = await page.pdf({
-      format,
-      landscape,
-      printBackground: true,
-      margin: margins,
-      displayHeaderFooter: false,
-    });
+    const pdfBuffer = await withTimeout(
+      page.pdf({
+        format,
+        landscape,
+        printBackground: true,
+        margin: margins,
+        displayHeaderFooter: false,
+      }),
+      PDF_RENDER_TIMEOUT_MS,
+      "Timed out while rendering PDF",
+    );
 
     return Buffer.from(pdfBuffer);
   } finally {

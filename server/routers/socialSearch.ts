@@ -61,6 +61,55 @@ function extractRealWebsites(rawHtml: string): string[] {
 }
 
 // ===== أدوات محاكاة البشر =====
+function parseCompactCount(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 ? Math.round(value) : undefined;
+  }
+  if (typeof value !== "string") return undefined;
+
+  const normalized = value.replace(/[،\s]/g, "").trim();
+  if (!normalized) return undefined;
+
+  const match = normalized.match(/^([\d.,]+)([KMB])?$/i);
+  if (!match) return undefined;
+
+  const base = Number(match[1].replace(/,/g, ""));
+  if (!Number.isFinite(base) || base <= 0) return undefined;
+
+  const suffix = (match[2] || "").toUpperCase();
+  const multiplier = suffix === "B" ? 1_000_000_000 : suffix === "M" ? 1_000_000 : suffix === "K" ? 1_000 : 1;
+  return Math.round(base * multiplier);
+}
+
+function extractFollowersFromText(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    const match = value.match(/([\d.,]+)\s*([KMB])?\s*(?:followers?|متابع(?:ين)?|subscriber(?:s)?|مشترك(?:ين)?)/i);
+    const parsed = parseCompactCount(match ? `${match[1]}${match[2] || ""}` : value);
+    if (parsed) return parsed;
+  }
+  return undefined;
+}
+
+function pickFollowersCount(result: any, ...textFallbacks: unknown[]): number | undefined {
+  const directFields = [
+    result?.followers,
+    result?.followersCount,
+    result?.follower_count,
+    result?.followers_count,
+    result?.subscribers,
+    result?.subscriberCount,
+    result?.subscribersCount,
+  ];
+
+  for (const field of directFields) {
+    const parsed = parseCompactCount(field);
+    if (parsed) return parsed;
+  }
+
+  return extractFollowersFromText(...textFallbacks);
+}
+
 const humanDelay = (min = 1000, max = 3000) =>
   new Promise(r => setTimeout(r, min + Math.random() * (max - min)));
 
@@ -253,7 +302,7 @@ async function searchInstagram(keyword: string, city: string): Promise<any[]> {
         name: r.displayName || r.title || "",
         username: r.username || "",
         bio: r.description || r.snippet || r.bio || "",
-        followers: r.followers || 0,
+        followers: pickFollowersCount(r, r.description, r.snippet, r.bio, r.title, r.displayName),
         businessType: "",
         phone: r.phone || "",
         website: "",
@@ -283,7 +332,7 @@ async function searchTikTok(keyword: string, city: string): Promise<any[]> {
         name: r.displayName || r.title || "",
         username: r.username || "",
         bio: r.description || r.snippet || "",
-        followers: r.followers || 0,
+        followers: pickFollowersCount(r, r.description, r.snippet, r.bio, r.title, r.displayName),
         businessType: "",
         phone: r.phone || "",
         website: "",
@@ -314,7 +363,7 @@ async function searchSnapchat(keyword: string, city: string): Promise<any[]> {
         name: r.displayName || r.title || "",
         username: r.username || "",
         bio: r.description || r.snippet || "",
-        followers: r.subscribers || 0,
+        followers: pickFollowersCount(r, r.description, r.snippet, r.bio, r.title, r.displayName),
         businessType: "",
         phone: r.phone || "",
         website: "",
@@ -344,7 +393,7 @@ async function searchTwitter(keyword: string, city: string): Promise<any[]> {
         name: r.displayName || r.username || "",
         username: r.username || "",
         bio: r.bio || "",
-        followers: 0,
+        followers: pickFollowersCount(r, r.bio, r.description, r.snippet, r.title, r.displayName),
         businessType: "",
         phone: "",
         website: "",
@@ -373,7 +422,7 @@ async function searchLinkedIn(keyword: string, city: string): Promise<any[]> {
         name: r.displayName || r.username || "",
         username: r.username || "",
         bio: r.bio || "",
-        followers: 0,
+        followers: pickFollowersCount(r, r.bio, r.description, r.snippet, r.title, r.displayName),
         businessType: "",
         phone: "",
         website: "",
@@ -402,7 +451,7 @@ async function searchFacebook(keyword: string, city: string): Promise<any[]> {
         name: r.displayName || r.username || "",
         username: r.username || "",
         bio: r.bio || "",
-        followers: 0,
+        followers: pickFollowersCount(r, r.bio, r.description, r.snippet, r.title, r.displayName),
         businessType: "",
         phone: "",
         website: "",

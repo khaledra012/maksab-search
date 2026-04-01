@@ -22,6 +22,13 @@ async function getCompanySettingsData() {
 
 // ===== Helper: جلب المنافسين من نفس المجال والمدينة =====
 // معاجم القطاعات لضمان مطابقة دقيقة لنوع النشاط
+function buildAnalystContext(lead: any): string {
+  const sections: string[] = [];
+  if (lead?.notes?.trim()) sections.push(`ملاحظات الفريق:\n${lead.notes.trim()}`);
+  if (lead?.additionalNotes?.trim()) sections.push(`تعليقات المحلل:\n${lead.additionalNotes.trim()}`);
+  return sections.join("\n\n");
+}
+
 const BUSINESS_CATEGORY_KEYWORDS: Record<string, string[]> = {
   "ملابس": ["ملابس", "أزياء", "بوتيك", "عبايا", "خياط", "موضة", "فاشون", "أطفال", "رجال", "نساء"],
   "مطعم": ["مطعم", "كافيه", "مقهى", "مطبخ", "وجبات", "برغر", "بيتزا", "سوشي", "مشوي", "شوارم", "فطور", "حلويات"],
@@ -1290,10 +1297,13 @@ function buildPDFHtml(lead: any, websiteAnalysis: any, socialAnalyses: any[], co
       `}
     </div>
 
-    ${lead.notes ? `
+    ${lead.notes || lead.additionalNotes ? `
     <div class="section">
       <div class="section-title">📝 ملاحظات</div>
-      <div class="analysis-box"><p>${lead.notes}</p></div>
+      <div class="analysis-box">
+        ${lead.notes ? `<p>${lead.notes}</p>` : ""}
+        ${lead.additionalNotes ? `<p style="margin-top:${lead.notes ? "10px" : "0"};padding-top:${lead.notes ? "10px" : "0"};border-top:${lead.notes ? "1px solid #e2e8f0" : "none"};"><strong>تعليقات المحلل:</strong> ${lead.additionalNotes}</p>` : ""}
+      </div>
     </div>` : ""}
   </div>
 
@@ -1670,10 +1680,12 @@ export const reportRouter = router({
     .mutation(async ({ input }) => {
       const lead = await getLeadById(input.leadId);
       if (!lead) throw new TRPCError({ code: "NOT_FOUND", message: "العميل غير موجود" });
+      const analystContext = buildAnalystContext(lead);
       const response = await invokeLLM({
         messages: [
           { role: "system", content: "أنت مساعد مبيعات خبير. قدم ملخصاً احترافياً للعميل." },
           { role: "user", content: `قدم ملخصاً مختصراً لهذا العميل:\nالشركة: ${lead.companyName}\nالنشاط: ${lead.businessType}\nالمدينة: ${lead.city}\nالمرحلة: ${lead.stage}` },
+          ...(analystContext ? [{ role: "user" as const, content: `ضع هذه الملاحظات في الاعتبار عند كتابة الملخص:\n${analystContext}` }] : []),
         ],
       });
       return { summary: response.choices[0]?.message?.content || "لا يمكن إنشاء الملخص حالياً" };
@@ -1739,6 +1751,7 @@ export const reportRouter = router({
         socialEngagement: socialAnalyses[0]?.engagementScore,
         googleRating: (lead as any).googleRating,
         googleReviews: (lead as any).googleReviewsCount,
+        analystNotes: buildAnalystContext(lead) || null,
       };
 
       const compSummary = competitors.slice(0, 5).map((c: any) => ({
@@ -1765,11 +1778,13 @@ ${input.gaps.map((g, i) => `${i + 1}. ${g}`).join('\n')}
 
 المطلوب: أعطني نسبة مئوية للفجوة التنافسية لكل ثغرة (0-100) بناءً على مقارنة وضع العميل بالمنافسين. كلما كان العميل أضعف في هذا الجانب مقارنةً بالمنافسين، كلما زادت النسبة. إذا لم تتوفر بيانات كافية، استخدم تقديراً منطقياً بناءً على نوع النشاط والمدينة.`;
 
+      const analystContext = buildAnalystContext(lead);
       try {
         const response = await invokeLLM({
           messages: [
             { role: "system", content: "أنت محلل تسويق رقمي. أجب فقط بـ JSON وفق النسق المطلوب." },
             { role: "user", content: prompt },
+            ...(analystContext ? [{ role: "user" as const, content: `ضع ملاحظات المحلل التالية في الاعتبار عند حساب الفجوات:\n${analystContext}` }] : []),
           ],
           response_format: {
             type: "json_schema",

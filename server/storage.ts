@@ -9,6 +9,12 @@ type StorageProvider = "local" | "s3" | "supabase";
 
 const LOCAL_STORAGE_ROOT = path.resolve(process.cwd(), ".local-storage");
 const LOCAL_PUBLIC_PREFIX = "/uploads";
+const SUPABASE_UPLOAD_TIMEOUT_MS = 60_000;
+const SUPABASE_UPLOAD_MAX_ATTEMPTS = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function normalizeKey(relKey: string): string {
   return relKey.replace(/^\/+/, "").replace(/\\/g, "/");
@@ -165,6 +171,40 @@ async function parseSupabaseError(response: Response): Promise<string> {
   return `Supabase storage request failed with status ${response.status}`;
 }
 
+function getErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+
+  const directCode =
+    "code" in error && typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : undefined;
+
+  if (directCode) {
+    return directCode;
+  }
+
+  const cause =
+    "cause" in error ? (error as { cause?: unknown }).cause : undefined;
+
+  return cause && cause !== error ? getErrorCode(cause) : undefined;
+}
+
+function isRetryableSupabaseError(error: unknown): boolean {
+  const code = getErrorCode(error);
+
+  return [
+    "UND_ERR_HEADERS_TIMEOUT",
+    "ETIMEDOUT",
+    "ECONNRESET",
+    "EAI_AGAIN",
+    "ENOTFOUND",
+    "ECONNREFUSED",
+    "UND_ERR_CONNECT_TIMEOUT",
+  ].includes(code || "");
+}
+
 async function localPut(
   relKey: string,
   data: Buffer | Uint8Array | string
@@ -244,27 +284,70 @@ async function supabasePut(
     ensureUrlBase(ENV.supabaseUrl)
   ).toString();
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      apikey: getSupabaseAuthKey(),
-      Authorization: `Bearer ${getSupabaseAuthKey()}`,
-      "Content-Type": contentType,
-      "x-upsert": "true",
-    },
-    body: toBuffer(data),
-  });
+  const body = toBuffer(data);
+  let lastError: unknown;
 
-  if (!response.ok) {
-    throw new Error(
-      `${await parseSupabaseError(response)} (Supabase bucket: ${getSupabaseBucket()})`
-    );
+  for (let attempt = 1; attempt <= SUPABASE_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          apikey: getSupabaseAuthKey(),
+          Authorization: `Bearer ${getSupabaseAuthKey()}`,
+          "Content-Type": contentType,
+          "x-upsert": "true",
+        },
+        body,
+        signal: AbortSignal.timeout(SUPABASE_UPLOAD_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const errorMessage =
+          `${await parseSupabaseError(response)} (Supabase bucket: ${getSupabaseBucket()})`;
+
+        if (
+          attempt < SUPABASE_UPLOAD_MAX_ATTEMPTS &&
+          [408, 429].includes(response.status)
+        ) {
+          lastError = new Error(errorMessage);
+          await sleep(attempt * 1_000);
+          continue;
+        }
+
+        if (
+          attempt < SUPABASE_UPLOAD_MAX_ATTEMPTS &&
+          response.status >= 500
+        ) {
+          lastError = new Error(errorMessage);
+          await sleep(attempt * 1_000);
+          continue;
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      return {
+        key,
+        url: buildSupabasePublicUrl(key),
+      };
+    } catch (error) {
+      lastError = error;
+
+      if (
+        attempt < SUPABASE_UPLOAD_MAX_ATTEMPTS &&
+        isRetryableSupabaseError(error)
+      ) {
+        await sleep(attempt * 1_000);
+        continue;
+      }
+
+      throw error;
+    }
   }
 
-  return {
-    key,
-    url: buildSupabasePublicUrl(key),
-  };
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Supabase upload failed after multiple attempts");
 }
 
 async function supabaseGet(relKey: string): Promise<StorageResult> {

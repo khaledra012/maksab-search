@@ -1,5 +1,5 @@
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import {
   Plus, Search, Filter, Download, Trash2, Eye, Globe, Instagram, Phone, Mail,
@@ -34,6 +34,7 @@ const statusColors: Record<string, { color: string; bg: string; label: string }>
 
 // المراحل التي تعني "تم التواصل" أو ما بعدها
 const CONTACTED_STAGES = ["contacted", "interested", "price_offer", "meeting", "won", "lost"];
+const PAGE_SIZE = 50;
 
 export default function Leads() {
   const [search, setSearch] = useState("");
@@ -63,6 +64,7 @@ export default function Leads() {
   const [pendingAction, setPendingAction] = useState<"contact" | "template" | null>(null);
   // التبويب النشط: "all" = قائمة العملاء الجديدة | "contacted" = تم التواصل | "deferred" = مؤجلين | "cancelled" = ملغي التواصل
   const [activeListTab, setActiveListTab] = useState<"all" | "contacted" | "deferred" | "cancelled">("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [quickEditLead, setQuickEditLead] = useState<NonNullable<typeof allLeads>[number] | null>(null);
   const [showQuickEdit, setShowQuickEdit] = useState(false);
 
@@ -112,6 +114,40 @@ export default function Leads() {
     }
     return result;
   })();
+
+  const totalPages = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageEnd = pageStart + PAGE_SIZE;
+  const paginatedLeads = filteredLeads.slice(pageStart, pageEnd);
+  const visibleRangeStart = filteredLeads.length === 0 ? 0 : pageStart + 1;
+  const visibleRangeEnd = Math.min(pageEnd, filteredLeads.length);
+  const currentPageLeadIds = paginatedLeads.map((lead) => lead.id);
+  const allCurrentPageSelected =
+    currentPageLeadIds.length > 0 && currentPageLeadIds.every((id) => selectedIds.has(id));
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedIds(new Set());
+  }, [
+    search,
+    filterCountry,
+    filterCity,
+    filterStatus,
+    filterZone,
+    filterWhatsapp,
+    filterStage,
+    filterPriority,
+    filterScoringPriority,
+    filterSentToWhatchimp,
+    filterContactedWhatchimp,
+    activeListTab,
+  ]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const { data: zones } = trpc.zones.list.useQuery();
   const { data: segmentsList } = trpc.segments.list.useQuery();
@@ -184,12 +220,11 @@ export default function Leads() {
   });
   // توليد PDF لعميل واحد من القائمة
   const [generatingPdfLeadId, setGeneratingPdfLeadId] = useState<number | null>(null);
-  const singleGeneratePDF = trpc.pdfReport.generateAndSave.useMutation({
+  const singleGeneratePDF = trpc.pdfReport.generateBulk.useMutation({
     onSuccess: (data) => {
-      toast.success("تم توليد التقرير بنجاح");
-      if (data.reportUrl) window.open(data.reportUrl, "_blank");
+      toast.success(`تم إرسال ${data.queued} تقرير للتوليد في الخلفية`);
       setGeneratingPdfLeadId(null);
-      setTimeout(() => utils.leads.list.invalidate(), 1000);
+      setTimeout(() => utils.leads.list.invalidate(), 1200);
     },
     onError: (e) => { toast.error("فشل توليد PDF: " + e.message); setGeneratingPdfLeadId(null); },
   });
@@ -249,6 +284,17 @@ export default function Leads() {
     onError: (e) => toast.error(e.message),
   });
   const utils = trpc.useUtils();
+  const hasGeneratingPdfs = (allLeads ?? []).some((lead) => lead.pdfGenerationStatus === "generating");
+
+  useEffect(() => {
+    if (!hasGeneratingPdfs) return;
+
+    const pollInterval = window.setInterval(() => {
+      void utils.leads.list.invalidate();
+    }, 5000);
+
+    return () => window.clearInterval(pollInterval);
+  }, [hasGeneratingPdfs, utils]);
 
   const handleDelete = async (id: number, name: string) => {
     if (!confirm(`هل أنت متأكد من حذف "${name}"؟`)) return;
@@ -280,11 +326,15 @@ export default function Leads() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredLeads.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredLeads.map((l) => l.id)));
-    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allCurrentPageSelected) {
+        currentPageLeadIds.forEach((id) => next.delete(id));
+      } else {
+        currentPageLeadIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
   };
 
   const handleAddToSegment = async () => {
@@ -686,12 +736,13 @@ export default function Leads() {
 
       {/* Bulk action bar */}
       {filteredLeads.length > 0 && (
+        <>
         <div className="flex items-center gap-3 px-3 py-2 rounded-xl border border-border text-sm" style={{ background: "oklch(0.12 0.015 240)" }}>
           <button onClick={toggleSelectAll} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors">
-            {selectedIds.size === filteredLeads.length && filteredLeads.length > 0
+            {allCurrentPageSelected
               ? <CheckSquare className="w-4 h-4 text-primary" />
               : <Square className="w-4 h-4" />}
-            تحديد الكل
+            تحديد الصفحة الحالية
           </button>
           {selectedIds.size > 0 && (
             <span className="text-muted-foreground">
@@ -699,6 +750,34 @@ export default function Leads() {
             </span>
           )}
         </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border px-4 py-3 text-sm"
+          style={{ background: "oklch(0.12 0.015 240)" }}>
+          <span className="text-muted-foreground">
+            عرض {visibleRangeStart}-{visibleRangeEnd} من {filteredLeads.length} عميل
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+            >
+              السابق
+            </Button>
+            <span className="min-w-[120px] text-center text-foreground">
+              الصفحة {currentPage} من {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+            >
+              التالي
+            </Button>
+          </div>
+        </div>
+        </>
       )}
 
       {/* Leads table */}
@@ -733,7 +812,7 @@ export default function Leads() {
           <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-border text-xs text-muted-foreground font-medium">
             <div className="col-span-1 flex items-center justify-center">
               <button onClick={toggleSelectAll} className="text-muted-foreground hover:text-foreground transition-colors">
-                {selectedIds.size === filteredLeads.length && filteredLeads.length > 0
+                {allCurrentPageSelected
                   ? <CheckSquare className="w-4 h-4 text-primary" />
                   : <Square className="w-4 h-4" />}
               </button>
@@ -747,9 +826,14 @@ export default function Leads() {
           </div>
           {/* Table rows */}
           <div className="divide-y divide-border">
-            {filteredLeads.map((lead) => {
+            {paginatedLeads.map((lead) => {
               const statusInfo = statusColors[lead.analysisStatus];
               const isSelected = selectedIds.has(lead.id);
+              const storedReportUrl = lead.pdfFileUrl || (lead as any).pdfReportUrl;
+              const hasLegacyHtmlReport = !!storedReportUrl && /\.html(?:$|[?#])/i.test(storedReportUrl);
+              const pdfFileUrl = hasLegacyHtmlReport ? null : storedReportUrl;
+              const isQueueingPdf = generatingPdfLeadId === lead.id;
+              const isPdfGenerating = lead.pdfGenerationStatus === "generating";
               return (
                 <div
                   key={lead.id}
@@ -941,20 +1025,27 @@ export default function Leads() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if ((lead as any).pdfReportUrl) {
-                          window.open((lead as any).pdfReportUrl, "_blank");
+                        if (pdfFileUrl) {
+                          window.open(pdfFileUrl, "_blank");
+                        } else if (lead.pdfGenerationStatus === "generating") {
+                          toast.info("التقرير قيد التوليد في الخلفية");
                         } else {
+                          if (hasLegacyHtmlReport) {
+                            toast.info("تم العثور على تقرير قديم بصيغة HTML، جاري إعادة توليد PDF");
+                          }
                           setGeneratingPdfLeadId(lead.id);
-                          singleGeneratePDF.mutate({ leadId: lead.id, reportType: "client_facing" });
+                          singleGeneratePDF.mutate({ leadIds: [lead.id], reportType: "client_facing" });
                         }
                       }}
-                      disabled={generatingPdfLeadId === lead.id}
+                      disabled={isQueueingPdf}
                       className="p-1.5 rounded-lg hover:bg-white/5 transition-all"
-                      style={{ color: (lead as any).pdfReportUrl ? "oklch(0.75 0.18 280)" : "oklch(0.55 0.1 240)" }}
-                      title={(lead as any).pdfReportUrl ? "تحميل التقرير" : "توليد تقرير PDF"}
+                      style={{ color: pdfFileUrl ? "oklch(0.75 0.18 280)" : isPdfGenerating ? "oklch(0.72 0.16 75)" : "oklch(0.55 0.1 240)" }}
+                      title={pdfFileUrl ? "تحميل التقرير" : isPdfGenerating ? "التقرير قيد التوليد في الخلفية" : "توليد تقرير PDF"}
                     >
-                      {generatingPdfLeadId === lead.id ? (
+                      {isQueueingPdf ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isPdfGenerating ? (
+                        <Clock className="w-4 h-4" />
                       ) : (
                         <FileDown className="w-4 h-4" />
                       )}

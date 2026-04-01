@@ -6,6 +6,9 @@
 import puppeteer from "puppeteer-core";
 
 const CHROMIUM_PATH = "/usr/bin/chromium-browser";
+const BRIGHT_DATA_CONNECT_TIMEOUT_MS = 20000;
+const SOCIAL_MOBILE_VIEWPORT = { width: 430, height: 932 };
+const SOCIAL_DESKTOP_VIEWPORT = { width: 1280, height: 800 };
 
 export interface HeadlessResult {
   html: string;
@@ -14,6 +17,66 @@ export interface HeadlessResult {
   metaDescription: string;
   success: boolean;
   error?: string;
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+function getBrightDataWsEndpoint(): string | null {
+  const raw = process.env.BRIGHT_DATA_WS_ENDPOINT?.trim();
+  if (!raw) return null;
+  if (raw.startsWith("https://")) return `wss://${raw.slice("https://".length)}`;
+  if (raw.startsWith("http://")) return `ws://${raw.slice("http://".length)}`;
+  return raw;
+}
+
+function isBrightDataProxyError(err: unknown): boolean {
+  const message = String((err as any)?.message || err || "").toLowerCase();
+  return message.includes("407") || message.includes("proxy authentication");
+}
+
+async function connectBrightDataBrowser() {
+  const wsEndpoint = getBrightDataWsEndpoint();
+  if (!wsEndpoint) return null;
+
+  return Promise.race([
+    puppeteer.connect({ browserWSEndpoint: wsEndpoint }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Bright Data connect timeout after ${BRIGHT_DATA_CONNECT_TIMEOUT_MS}ms`)), BRIGHT_DATA_CONNECT_TIMEOUT_MS);
+    }),
+  ]);
+}
+
+async function prepareSocialScreenshotPage(page: any, userAgent: string, isMobile: boolean) {
+  await page.setUserAgent(userAgent);
+  await page.setViewport(isMobile ? SOCIAL_MOBILE_VIEWPORT : SOCIAL_DESKTOP_VIEWPORT);
+  await page.setExtraHTTPHeaders({
+    "Accept-Language": "ar-SA,ar;q=0.9,en-US;q=0.8,en;q=0.7",
+  });
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    Object.defineProperty(navigator, "platform", { get: () => "iPhone" });
+  });
+}
+
+async function captureSocialScreenshotFromPage(
+  page: any,
+  url: string,
+  platform: "instagram" | "tiktok" | "twitter" | "snapchat" | "facebook",
+  waitAfterLoad: number,
+  hidePopups: (page: any, platform: string) => Promise<void>,
+  timeoutMs: number,
+): Promise<Buffer> {
+  await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+  await sleep(waitAfterLoad);
+  await hidePopups(page, platform);
+  await sleep(1000);
+
+  const screenshotBuffer = await page.screenshot({
+    type: "png",
+    fullPage: false,
+  });
+
+  return Buffer.from(screenshotBuffer);
 }
 
 /**
@@ -257,6 +320,28 @@ export async function takeSocialMediaScreenshot(
 
   // للمنصات المحجوبة (إنستغرام وتيك توك): استخدام Bright Data Residential Proxy أولاً
   if (isInstagram || isTiktok) {
+    let bdWsBrowser = null;
+    try {
+      bdWsBrowser = await connectBrightDataBrowser();
+      if (bdWsBrowser) {
+        const page = await bdWsBrowser.newPage();
+        await prepareSocialScreenshotPage(page, userAgent, true);
+        const screenshotBuffer = await captureSocialScreenshotFromPage(page, url, platform, 5000, hidePopups, timeoutMs);
+
+        await bdWsBrowser.disconnect();
+        console.log(`[SocialScreenshot] Captured ${platform} via Bright Data Scraping Browser: ${url} (${screenshotBuffer.length} bytes)`);
+        return screenshotBuffer;
+      }
+    } catch (err: any) {
+      const label = isBrightDataProxyError(err)
+        ? "Bright Data Scraping Browser auth failed"
+        : "Bright Data Scraping Browser failed";
+      console.warn(`[SocialScreenshot] ${label} for ${platform}:`, err?.message);
+      if (bdWsBrowser) {
+        try { await bdWsBrowser.disconnect(); } catch { /* طھط¬ط§ظ‡ظ„ */ }
+      }
+    }
+
     const proxyHost = process.env.BRIGHT_DATA_RESIDENTIAL_HOST;
     const proxyPort = process.env.BRIGHT_DATA_RESIDENTIAL_PORT;
     const proxyUser = process.env.BRIGHT_DATA_RESIDENTIAL_USERNAME;
@@ -277,12 +362,11 @@ export async function takeSocialMediaScreenshot(
             "--ignore-certificate-errors",
             "--ignore-certificate-errors-spki-list",
             `--proxy-server=http://${proxyHost}:${proxyPort}`,
-            `--user-agent=${userAgent}`,
           ],
         });
 
         const page = await bdBrowser.newPage();
-        await page.setViewport({ width: 430, height: 932 }); // iPhone 14 Pro Max
+        await prepareSocialScreenshotPage(page, userAgent, true);
         await page.authenticate({ username: proxyUser, password: proxyPass });
         // تجاهل أخطاء SSL من الـ proxy
         page.on('response', () => {}); // dummy listener
@@ -293,19 +377,11 @@ export async function takeSocialMediaScreenshot(
           Object.defineProperty(navigator, "platform", { get: () => "iPhone" });
         });
 
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
-        await new Promise(r => setTimeout(r, 5000));
-        await hidePopups(page, platform);
-        await new Promise(r => setTimeout(r, 1500));
-
-        const screenshotBuffer = await page.screenshot({
-          type: "png",
-          fullPage: false,
-        });
+        const screenshotBuffer = await captureSocialScreenshotFromPage(page, url, platform, 5000, hidePopups, timeoutMs);
 
         await bdBrowser.close();
-        console.log(`[SocialScreenshot] Captured ${platform} via Bright Data Residential Proxy: ${url} (${Buffer.from(screenshotBuffer).length} bytes)`);
-        return Buffer.from(screenshotBuffer);
+        console.log(`[SocialScreenshot] Captured ${platform} via Bright Data Residential Proxy: ${url} (${screenshotBuffer.length} bytes)`);
+        return screenshotBuffer;
       } catch (err: any) {
         console.warn(`[SocialScreenshot] Bright Data Residential Proxy failed for ${platform}:`, err?.message);
         if (bdBrowser) {
