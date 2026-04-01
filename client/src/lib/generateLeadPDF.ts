@@ -2404,44 +2404,15 @@ export async function generateLeadPDF(options: GeneratePDFOptions): Promise<void
   }
   @media print {
     body { background: #020810; margin: 0; padding: 0; }
-    #print-toolbar { display: none !important; }
     .page-wrapper { box-shadow: none !important; margin: 0 !important; }
   }
   @page {
     size: A4 portrait;
     margin: 0;
   }
-  #print-toolbar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
-    background: linear-gradient(135deg,#0a1628,#0d1f3c);
-    border-bottom: 2px solid rgba(34,197,94,0.3);
-    padding: 10px 24px; display: flex; align-items: center;
-    justify-content: space-between; gap: 12px;
-    font-family: 'Tajawal', sans-serif; direction: rtl;
-    box-shadow: 0 2px 20px rgba(0,0,0,0.5), 0 0 30px rgba(34,197,94,0.05);
-  }
-  #print-toolbar .info { display: flex; flex-direction: column; gap: 2px; }
-  #print-toolbar .title { color: #f1f5f9; font-size: 14px; font-weight: 700; }
-  #print-toolbar .hint { color: #475569; font-size: 11px; }
-  #print-toolbar .actions { display: flex; gap: 8px; align-items: center; }
-  #print-toolbar .btn-print {
-    background: linear-gradient(135deg,#16a34a,#22c55e);
-    color: #000; border: none; border-radius: 8px;
-    padding: 9px 22px; font-size: 13px; font-weight: 800;
-    cursor: pointer; font-family: 'Tajawal', sans-serif;
-    display: flex; align-items: center; gap: 6px;
-    box-shadow: 0 0 20px rgba(34,197,94,0.4);
-  }
-  #print-toolbar .btn-print:hover { background: linear-gradient(135deg,#22c55e,#4ade80); }
-  #print-toolbar .btn-close {
-    background: rgba(255,255,255,0.05); color: #94a3b8;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600;
-    cursor: pointer; font-family: 'Tajawal', sans-serif;
-  }
-  #print-toolbar .btn-close:hover { background: rgba(255,255,255,0.1); }
+  #print-toolbar { display: none !important; }
   .pages-container {
-    padding: 70px 20px 30px;
+    padding: 20px 20px 30px;
     display: flex; flex-direction: column; align-items: center; gap: 24px;
   }
   @media print {

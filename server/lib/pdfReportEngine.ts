@@ -1512,16 +1512,10 @@ export function generateReportHTML(data: PDFReportData): string {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:'Tajawal','Cairo','Noto Sans Arabic',sans-serif; direction:rtl; text-align:right; background:#0a0f1e; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; color-adjust:exact !important; }
-  @media print { body { background:#020810; margin:0; padding:0; } #print-toolbar { display:none !important; } .page-wrapper { box-shadow:none !important; margin:0 !important; } }
+  @media print { body { background:#020810; margin:0; padding:0; } .page-wrapper { box-shadow:none !important; margin:0 !important; } }
   @page { size:A4 portrait; margin:0; }
-  #print-toolbar { position:fixed; top:0; left:0; right:0; z-index:99999; background:linear-gradient(135deg,#020810,#0a1628); border-bottom:2px solid rgba(34,197,94,0.4); padding:8px 20px; display:flex; align-items:center; justify-content:space-between; gap:10px; font-family:'Tajawal',sans-serif; direction:rtl; box-shadow:0 4px 30px rgba(0,0,0,0.7); }
-  #print-toolbar .title { color:#f1f5f9; font-size:13px; font-weight:800; }
-  #print-toolbar .subtitle { color:#475569; font-size:9px; margin-top:1px; }
-  #print-toolbar .hint { color:#334155; font-size:9px; margin-top:2px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2); border-radius:6px; padding:3px 8px; }
-  #print-toolbar .btn-print { background:linear-gradient(135deg,#16a34a,#22c55e); color:#000; border:none; border-radius:8px; padding:8px 22px; font-size:12px; font-weight:900; cursor:pointer; font-family:'Tajawal',sans-serif; box-shadow:0 0 20px rgba(34,197,94,0.5); transition:all 0.2s; }
-  #print-toolbar .btn-print:hover { transform:scale(1.03); box-shadow:0 0 30px rgba(34,197,94,0.7); }
-  #print-toolbar .btn-close { background:rgba(255,255,255,0.04); color:#64748b; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px 14px; font-size:12px; cursor:pointer; font-family:'Tajawal',sans-serif; }
-  .pages-container { padding:60px 16px 20px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+  #print-toolbar { display:none !important; }
+  .pages-container { padding:20px 16px 20px; display:flex; flex-direction:column; align-items:center; gap:16px; }
   @media print { .pages-container { padding:0; gap:0; } }
   .page-wrapper { width:210mm; box-shadow:0 8px 40px rgba(0,0,0,0.6), 0 0 60px rgba(34,197,94,0.04); position:relative; overflow:hidden; }
   .page-wrapper::after { content:"حصري من مكسب"; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-35deg); font-size:56px; font-weight:900; color:rgba(34,197,94,0.035); white-space:nowrap; pointer-events:none; z-index:9999; font-family:'Cairo',sans-serif; letter-spacing:6px; }
