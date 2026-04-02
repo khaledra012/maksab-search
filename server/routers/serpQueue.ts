@@ -14,19 +14,27 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { serpSearchQueue, serpSearchResults } from "../../drizzle/schema";
 import { eq, desc, and, or, like, inArray, sql, gte, lte } from "drizzle-orm";
-import {
-  searchInstagramSERP,
-  searchTikTokSERP,
-  searchSnapchatSERP,
-  searchLinkedInSERP,
-  searchFacebookSERP,
-  searchTwitterSERP,
-} from "./serpSearch";
+import { searchVerifiedPlatformResults, type VerifiedSearchPlatform } from "./brightDataSearch";
 import { invokeLLM } from "../_core/llm";
 
 // ===== Types =====
-type Platform = "instagram" | "tiktok" | "snapchat" | "facebook" | "twitter" | "linkedin";
+type Platform = Exclude<VerifiedSearchPlatform, "google">;
 type LogEntry = { time: string; message: string; type: "info" | "success" | "warning" | "error" };
+type QueueSearchResult = {
+  username: string;
+  displayName: string;
+  bio: string;
+  url: string;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  relevanceScore?: number | null;
+  businessType?: string | null;
+  priority: "high" | "medium" | "low";
+  isContactable: boolean;
+};
+
+const PRIORITY_VALUES = new Set(["high", "medium", "low"]);
 
 // ===== Helper: إضافة سجل للمهمة =====
 async function appendLog(jobId: number, message: string, type: LogEntry["type"] = "info") {
@@ -116,20 +124,106 @@ ${JSON.stringify(results.slice(0, 15).map(r => ({
 }
 
 // ===== Core: تنفيذ البحث لمنصة واحدة =====
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function firstStringFromArray(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  for (const entry of value) {
+    if (typeof entry === "string" && entry.trim()) return entry.trim();
+  }
+  return "";
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function usernameFromProfileUrl(url: string): string {
+  try {
+    const segments = new URL(url).pathname.split("/").filter(Boolean);
+    const last = segments[segments.length - 1] || "";
+    return decodeURIComponent(last).replace(/^@/, "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function derivePriority(priority: unknown, score: number | null): "high" | "medium" | "low" {
+  if (typeof priority === "string" && PRIORITY_VALUES.has(priority)) {
+    return priority as "high" | "medium" | "low";
+  }
+  if (score !== null && score >= 7) return "high";
+  if (score !== null && score >= 4) return "medium";
+  return "low";
+}
+
+function normalizeSearchResult(result: any): QueueSearchResult | null {
+  const url = firstNonEmptyString(result?.profileUrl, result?.profile_url, result?.url, result?.website);
+  const displayName = firstNonEmptyString(
+    result?.displayName,
+    result?.fullName,
+    result?.name,
+    result?.title
+  );
+  const username = firstNonEmptyString(result?.username, usernameFromProfileUrl(url), displayName)
+    .replace(/^@/, "")
+    .trim();
+
+  if (!url || !username) return null;
+
+  const phone = firstNonEmptyString(
+    result?.phone,
+    result?.businessPhone,
+    firstStringFromArray(result?.verifiedPhones),
+    firstStringFromArray(result?.candidatePhones)
+  );
+  const email = firstNonEmptyString(result?.email, result?.businessEmail);
+  const website = firstNonEmptyString(result?.website);
+  const relevanceScore = toFiniteNumber(result?.relevanceScore) ?? toFiniteNumber(result?.rating);
+  const businessType = firstNonEmptyString(result?.businessType, result?.businessCategory);
+  const bio = firstNonEmptyString(result?.bio, result?.description);
+
+  return {
+    username,
+    displayName: displayName || username,
+    bio,
+    url,
+    phone: phone || null,
+    email: email || null,
+    website: website || null,
+    relevanceScore,
+    businessType: businessType || null,
+    priority: derivePriority(result?.priority, relevanceScore),
+    isContactable: Boolean(result?.isContactable || phone || email || website),
+  };
+}
+
+function getPlatformSearchLimit(targetCount: number, platformsCount: number): number {
+  const safeTarget = Math.max(targetCount || 10, 10);
+  const safePlatforms = Math.max(platformsCount || 1, 1);
+  return Math.min(50, Math.max(10, Math.ceil(safeTarget / safePlatforms)));
+}
+
 async function searchPlatform(
   platform: Platform,
   keyword: string,
-  location: string
-): Promise<Array<{ username: string; displayName: string; bio: string; url: string }>> {
-  switch (platform) {
-    case "instagram": return searchInstagramSERP(keyword, location);
-    case "tiktok": return searchTikTokSERP(keyword, location);
-    case "snapchat": return searchSnapchatSERP(keyword, location);
-    case "facebook": return searchFacebookSERP(keyword, location);
-    case "twitter": return searchTwitterSERP(keyword, location);
-    case "linkedin": return searchLinkedInSERP(keyword, location);
-    default: return [];
-  }
+  location: string,
+  limit = 10
+): Promise<QueueSearchResult[]> {
+  const rawResults = await searchVerifiedPlatformResults(platform, keyword, location, limit);
+  return rawResults
+    .map((result) => normalizeSearchResult(result))
+    .filter((result): result is QueueSearchResult => !!result);
 }
 
 // ===== Core: تنفيذ مهمة بحث كاملة =====
@@ -145,6 +239,7 @@ async function executeSearchJob(jobId: number): Promise<void> {
   await appendLog(jobId, `بدء تنفيذ مهمة البحث: "${job.keyword}" في ${job.location}`, "info");
 
   const platforms = (job.platforms as Platform[]) || ["instagram", "tiktok", "snapchat"];
+  const perPlatformLimit = getPlatformSearchLimit(job.targetCount || 50, platforms.length);
   let totalFound = 0;
 
   try {
@@ -243,6 +338,123 @@ async function executeSearchJob(jobId: number): Promise<void> {
   }
 }
 
+async function executeSearchJobWithNewEngine(jobId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+
+  const [job] = await db.select().from(serpSearchQueue).where(eq(serpSearchQueue.id, jobId));
+  if (!job) throw new Error(`Job ${jobId} not found`);
+
+  await updateJobStatus(jobId, "running");
+  await appendLog(jobId, `بدء تنفيذ مهمة البحث الجديدة: "${job.keyword}" في ${job.location}`, "info");
+
+  const platforms = (job.platforms as Platform[]) || ["instagram", "tiktok", "snapchat"];
+  const perPlatformLimit = getPlatformSearchLimit(job.targetCount || 50, platforms.length);
+  let totalFound = 0;
+
+  try {
+    const platformBatches: Platform[][] = [];
+    for (let i = 0; i < platforms.length; i += 3) {
+      platformBatches.push(platforms.slice(i, i + 3) as Platform[]);
+    }
+
+    for (const batch of platformBatches) {
+      const [currentJob] = await db
+        .select({ status: serpSearchQueue.status })
+        .from(serpSearchQueue)
+        .where(eq(serpSearchQueue.id, jobId));
+
+      if (currentJob?.status === "paused" || currentJob?.status === "failed") {
+        await appendLog(jobId, "تم إيقاف المهمة", "warning");
+        return;
+      }
+
+      const batchResults = await Promise.allSettled(
+        batch.map(async (platform) => {
+          await db.update(serpSearchQueue).set({ currentPlatform: platform }).where(eq(serpSearchQueue.id, jobId));
+          await appendLog(jobId, `جاري البحث في ${platform} بالمحرك الجديد...`, "info");
+
+          const results = await searchPlatform(
+            platform,
+            job.keyword,
+            job.location || "السعودية",
+            perPlatformLimit
+          );
+          await appendLog(jobId, `${platform}: وجدت ${results.length} نتيجة`, "success");
+
+          const analyzed = await analyzeResultsWithAI(
+            results.filter((result) => !result.relevanceScore || !result.businessType),
+            job.keyword,
+            platform
+          );
+          const analysisMap = new Map(analyzed.map((analysis) => [analysis.username, analysis]));
+
+          const toInsert = results.map((result) => {
+            const analysis = analysisMap.get(result.username);
+            return {
+              searchQuery: `${job.keyword} ${job.location}`,
+              platform: platform as any,
+              keyword: job.keyword,
+              location: job.location || "السعودية",
+              username: result.username,
+              displayName: result.displayName || result.username,
+              bio: result.bio || null,
+              profileUrl: result.url,
+              phone: result.phone || null,
+              email: result.email || null,
+              website: result.website || null,
+              relevanceScore: result.relevanceScore ?? analysis?.relevanceScore ?? null,
+              businessType: result.businessType || analysis?.businessType || job.keyword,
+              priority: (result.priority || analysis?.priority || "medium") as any,
+              isContactable: result.isContactable || analysis?.isContactable || false,
+              jobId,
+            };
+          });
+
+          if (toInsert.length === 0) return 0;
+
+          const existingUsernames = await db
+            .select({ username: serpSearchResults.username })
+            .from(serpSearchResults)
+            .where(
+              and(
+                eq(serpSearchResults.platform, platform as any),
+                eq(serpSearchResults.keyword, job.keyword)
+              )
+            );
+          const existingSet = new Set(existingUsernames.map((entry) => entry.username));
+          const newResults = toInsert.filter((result) => !existingSet.has(result.username));
+
+          if (newResults.length > 0) {
+            for (let i = 0; i < newResults.length; i += 50) {
+              await db.insert(serpSearchResults).values(newResults.slice(i, i + 50));
+            }
+          }
+
+          return newResults.length;
+        })
+      );
+
+      for (const result of batchResults) {
+        if (result.status === "fulfilled") {
+          totalFound += result.value;
+        } else {
+          await appendLog(jobId, `خطأ في أحد المنصات: ${result.reason?.message}`, "error");
+        }
+      }
+
+      await db.update(serpSearchQueue).set({ totalFound }).where(eq(serpSearchQueue.id, jobId));
+    }
+
+    await updateJobStatus(jobId, "completed", { totalFound, currentPlatform: null });
+    await appendLog(jobId, `اكتملت المهمة! إجمالي النتائج الجديدة: ${totalFound}`, "success");
+  } catch (err: any) {
+    await updateJobStatus(jobId, "failed", { errorMessage: err.message });
+    await appendLog(jobId, `فشلت المهمة: ${err.message}`, "error");
+    throw err;
+  }
+}
+
 // ===== Active Jobs Tracker =====
 const activeJobs = new Map<number, boolean>();
 
@@ -279,7 +491,7 @@ export const serpQueueRouter = router({
         // تنفيذ المهمة في الخلفية (لا ننتظر)
         if (!activeJobs.has(jobId)) {
           activeJobs.set(jobId, true);
-          executeSearchJob(jobId)
+          executeSearchJobWithNewEngine(jobId)
             .catch((err) => console.error(`[Queue] Job ${jobId} failed:`, err))
             .finally(() => activeJobs.delete(jobId));
         }
@@ -296,7 +508,7 @@ export const serpQueueRouter = router({
         throw new TRPCError({ code: "CONFLICT", message: "المهمة قيد التنفيذ بالفعل" });
       }
       activeJobs.set(input.jobId, true);
-      executeSearchJob(input.jobId)
+      executeSearchJobWithNewEngine(input.jobId)
         .catch((err) => console.error(`[Queue] Job ${input.jobId} failed:`, err))
         .finally(() => activeJobs.delete(input.jobId));
       return { message: "تم بدء تنفيذ المهمة" };

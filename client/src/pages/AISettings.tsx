@@ -152,12 +152,6 @@ export default function AISettings() {
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
   const [transcribeIncoming, setTranscribeIncoming] = useState(true);
   const [voiceReplyScope, setVoiceReplyScope] = useState<"voice_only" | "all_messages">("voice_only");
-  // ===== إعدادات Instagram API =====
-  const [instagramAccessToken, setInstagramAccessToken] = useState("");
-  const [instagramAppId, setInstagramAppId] = useState("");
-  const [instagramApiEnabled, setInstagramApiEnabled] = useState(false);
-  const [showInstagramToken, setShowInstagramToken] = useState(false);
-  const [hasInstagramToken, setHasInstagramToken] = useState(false);
   // ===== إعدادات التصعيد البشري =====
   const [escalationEnabled, setEscalationEnabled] = useState(false);
   const [escalationPhone, setEscalationPhone] = useState("");
@@ -214,10 +208,6 @@ export default function AISettings() {
       setVoiceSpeed((settings as any).voiceSpeed ?? 1.0);
       setTranscribeIncoming((settings as any).transcribeIncoming ?? true);
       setVoiceReplyScope((settings as any).voiceReplyScope || "voice_only");
-      // تحميل إعدادات Instagram API
-      setInstagramAppId((settings as any).instagramAppId || "");
-      setInstagramApiEnabled((settings as any).instagramApiEnabled ?? false);
-      setHasInstagramToken(!!(settings as any).instagramAccessToken);
     }
   }, [settings]);
 
@@ -289,10 +279,6 @@ export default function AISettings() {
       voiceSpeed,
       voiceReplyScope,
       transcribeIncoming,
-      // Instagram API
-      instagramApiEnabled,
-      instagramAppId: instagramAppId || undefined,
-      instagramAccessToken: instagramAccessToken || undefined,
     });
   };
 
@@ -1277,95 +1263,6 @@ export default function AISettings() {
           </div>
         </Section>
       )}
-      {/* ===== قسم Instagram API ===== */}
-      <Section icon={Globe} title="إعدادات Instagram API" subtitle="ربط حساب إنستجرام للبحث وجمع بيانات العملاء">
-        <div className="space-y-4">
-          {/* تفعيل Instagram API */}
-          <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-background/30">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)" }}>
-                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
-              </div>
-              <div>
-                <p className="font-medium text-sm">Instagram Graph API</p>
-                <p className="text-xs text-muted-foreground">البحث في إنستجرام وجمع بيانات العملاء</p>
-              </div>
-            </div>
-            <Switch checked={instagramApiEnabled} onCheckedChange={setInstagramApiEnabled} />
-          </div>
-
-          {instagramApiEnabled && (
-            <div className="space-y-3 p-4 rounded-xl border border-border bg-background/20">
-              {/* App ID / User ID */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Key className="w-4 h-4 text-primary" />
-                  Instagram App ID (User ID)
-                </label>
-                <Input
-                  value={instagramAppId}
-                  onChange={(e) => setInstagramAppId(e.target.value)}
-                  placeholder="123456789012345"
-                  dir="ltr"
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">رقم معرّف التطبيق أو المستخدم من Facebook Developer</p>
-              </div>
-
-              {/* Access Token */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium flex items-center gap-2">
-                  <Key className="w-4 h-4 text-primary" />
-                  Instagram Access Token
-                  {hasInstagramToken && !instagramAccessToken && (
-                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">محفوظ</Badge>
-                  )}
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showInstagramToken ? "text" : "password"}
-                    value={instagramAccessToken}
-                    onChange={(e) => setInstagramAccessToken(e.target.value)}
-                    placeholder={hasInstagramToken ? "•••••••• (محفوظ - اتركه فارغاً للإبقاء عليه)" : "EAAG..."}
-                    dir="ltr"
-                    className="font-mono text-sm pl-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowInstagramToken(!showInstagramToken)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showInstagramToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-muted-foreground">Long-lived Access Token من Instagram Graph API</p>
-              </div>
-
-              {/* رابط الحصول على Token */}
-              <div className="p-3 rounded-lg border border-blue-500/20 bg-blue-500/5">
-                <p className="text-xs text-blue-400 font-medium mb-1">كيف تحصل على Instagram Access Token؟</p>
-                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                  <li>سجّل دخول على <a href="https://developers.facebook.com" target="_blank" rel="noopener" className="text-blue-400 underline">developers.facebook.com</a></li>
-                  <li>أنشئ تطبيقاً جديداً من نوع Business</li>
-                  <li>أضف منتج Instagram Graph API</li>
-                  <li>من Graph API Explorer، احصل على Long-lived Token</li>
-                  <li>تأكد من صلاحيات: instagram_basic, instagram_manage_insights</li>
-                </ol>
-              </div>
-            </div>
-          )}
-
-          {!instagramApiEnabled && (
-            <div className="p-4 rounded-xl border border-border bg-background/20 flex items-start gap-3">
-              <Info className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-medium">البحث بالذكاء الاصطناعي متاح دائماً</p>
-                <p className="text-xs text-muted-foreground mt-1">حتى بدون Instagram API، يمكنك البحث في مركز البحث باستخدام الذكاء الاصطناعي كبديل تلقائي. فعّل Instagram API للحصول على بيانات أكثر دقة مباشرة من المنصة.</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </Section>
 
       {/* زر الحفظ في الأسفل */}
       <div className="flex justify-end pb-4">

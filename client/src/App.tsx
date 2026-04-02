@@ -18,7 +18,6 @@ const LeadDetail = lazy(() => import("./pages/LeadDetail"));
 const Search = lazy(() => import("./pages/Search"));
 const Scout = lazy(() => import("./pages/Scout"));
 const SearchEngine = lazy(() => import("./pages/SearchEngine"));
-const InstagramSearch = lazy(() => import("./pages/InstagramSearch"));
 const SearchHub = lazy(() => import("./pages/SearchHub"));
 const UsersManagement = lazy(() => import("./pages/UsersManagement"));
 const JoinPage = lazy(() => import("./pages/JoinPage"));
@@ -48,7 +47,6 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
 const LabelsManager = lazy(() => import("./pages/LabelsManager"));
 const FollowUp = lazy(() => import("./pages/FollowUp"));
-const SmartAnalysis = lazy(() => import("./pages/SmartAnalysis"));
 const AIAgent = lazy(() => import("./pages/AIAgent"));
 const SerpQueue = lazy(() => import("./pages/SerpQueue"));
 const Seasons = lazy(() => import("./pages/Seasons"));
@@ -81,7 +79,6 @@ function Router() {
               <Route path="/search" component={Search} />
               <Route path="/scout" component={Scout} />
               <Route path="/engine" component={SearchEngine} />
-              <Route path="/instagram" component={InstagramSearch} />
               <Route path="/search-hub" component={SearchHub} />
               <Route path="/users">{() => <AdminGuard><UsersManagement /></AdminGuard>}</Route>
               <Route path="/join" component={JoinPage} />
@@ -105,7 +102,6 @@ function Router() {
               <Route path="/audit-log">{() => <AdminGuard><AuditLog /></AdminGuard>}</Route>
               <Route path="/labels" component={LabelsManager} />
               <Route path="/follow-up" component={FollowUp} />
-              <Route path="/smart-analysis" component={SmartAnalysis} />
               <Route path="/ai-agent" component={AIAgent} />
               <Route path="/serp-queue" component={SerpQueue} />
               <Route path="/seasons" component={Seasons} />

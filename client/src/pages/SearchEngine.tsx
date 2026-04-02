@@ -6,11 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
+import { useSearch, type PlatformId as SearchHubPlatformId } from "@/contexts/SearchContext";
 import {
   Play, Pause, Trash2, Plus, Bot, CheckCircle2, AlertCircle,
   Info, XCircle, RefreshCw, Zap, Search, Globe, MapPin,
   TrendingUp, Users, Clock, ChevronDown, ChevronUp, ExternalLink,
-  Camera, Instagram, Facebook, Music2, MessageCircle
+  Camera, Instagram, Facebook, Music2, MessageCircle, Twitter
 } from "lucide-react";
 import { COUNTRIES_DATA } from "../../../shared/countries";
 
@@ -100,6 +102,19 @@ const PLATFORMS: Platform[] = [
     buildSearchUrl: (q, city) => `https://www.facebook.com/search/pages/?q=${encodeURIComponent(q + " " + city)}`,
   },
   {
+    id: "twitter",
+    name: "Twitter / X",
+    nameAr: "تويتر / X",
+    icon: <Twitter className="w-5 h-5" />,
+    color: "text-sky-400",
+    bgColor: "bg-sky-900/30",
+    borderColor: "border-sky-700",
+    mode: "auto",
+    modeLabel: "تلقائي بالمحرك الجديد",
+    description: "يستخدم مسار تويتر / X في محرك البحث الجديد بدل مسار الصفحة القديم",
+    buildSearchUrl: (q, city) => `https://x.com/search?q=${encodeURIComponent(q + " " + city)}&src=typed_query`,
+  },
+  {
     id: "maroof",
     name: "Maroof.sa",
     nameAr: "معروف",
@@ -147,6 +162,21 @@ const BUSINESS_PRESETS = [
   "محل أغنام", "مزرعة دواجن", "محل عطور", "محل أثاث", "محل ذهب",
   "مدرسة تعليم قيادة", "مركز طبي", "عيادة أسنان", "صالة رياضية",
 ];
+
+const SEARCH_ENGINE_PLATFORM_MAP: Record<string, SearchHubPlatformId[] | null> = {
+  google_maps: ["googleWeb"],
+  instagram: ["instagram"],
+  tiktok: ["tiktok"],
+  snapchat: ["snapchat"],
+  twitter: ["twitter"],
+  facebook: ["facebook"],
+  all: ["googleWeb", "instagram", "tiktok", "snapchat", "twitter", "facebook"],
+  maroof: null,
+};
+
+function getSearchHubPlatforms(platformId: string): SearchHubPlatformId[] | null {
+  return SEARCH_ENGINE_PLATFORM_MAP[platformId] ?? null;
+}
 
 // ====== نموذج الاستخراج اليدوي ======
 function ManualExtractForm({ platform, query, city, onClose }: {
@@ -218,6 +248,7 @@ function ManualExtractForm({ platform, query, city, onClose }: {
   const platformColor = platform.id === "instagram" ? "bg-pink-700 hover:bg-pink-600" :
     platform.id === "snapchat" ? "bg-yellow-700 hover:bg-yellow-600" :
     platform.id === "tiktok" ? "bg-cyan-700 hover:bg-cyan-600" :
+    platform.id === "twitter" ? "bg-sky-700 hover:bg-sky-600" :
     platform.id === "facebook" ? "bg-blue-700 hover:bg-blue-600" :
     platform.id === "maroof" ? "bg-emerald-700 hover:bg-emerald-600" :
     "bg-zinc-700 hover:bg-zinc-600";
@@ -404,6 +435,14 @@ function ManualExtractForm({ platform, query, city, onClose }: {
 
 // ====== الصفحة الرئيسية ======
 export default function SearchEngine() {
+  const [, navigate] = useLocation();
+  const {
+    clearSession,
+    setSelectedPlatforms,
+    setTargetCount: setSearchTargetCount,
+    setAutoSave,
+    setAutoMerge,
+  } = useSearch();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>(PLATFORMS[0]);
   const [selectedCountry, setSelectedCountry] = useState("السعودية");
@@ -448,6 +487,38 @@ export default function SearchEngine() {
     if (!businessType.trim()) return toast.error("أدخل نوع النشاط");
     if (!selectedCity) return toast.error("اختر المدينة");
 
+    const hubPlatforms = getSearchHubPlatforms(selectedPlatform.id);
+    if (hubPlatforms && hubPlatforms.length > 0) {
+      const effectiveLimit = Math.min(targetCount, 50);
+      if (targetCount > 50) {
+        toast.info("المحرك الجديد يدعم حتى 50 نتيجة في التشغيل الواحد حاليًا", {
+          description: `سيتم استخدام ${effectiveLimit} نتيجة بدلًا من ${targetCount}`,
+        });
+      }
+
+      clearSession();
+      setSelectedPlatforms(hubPlatforms);
+      setSearchTargetCount(effectiveLimit);
+      setAutoSave(false);
+      setAutoMerge(false);
+
+      const params = new URLSearchParams({
+        keyword: businessType.trim(),
+        city: selectedCity,
+        limit: String(effectiveLimit),
+        targetCount: String(effectiveLimit),
+        tab: hubPlatforms[0],
+        platforms: hubPlatforms.join(","),
+        autorun: "1",
+        from: "search-engine",
+      });
+
+      setManualPlatform(null);
+      setShowCreateForm(false);
+      navigate(`/search-hub?${params.toString()}`);
+      return;
+    }
+
     // المنصات اليدوية: افتح رابط البحث + أظهر نموذج الاستخراج
     if (selectedPlatform.mode === "manual" && selectedPlatform.id !== "all") {
       const url = selectedPlatform.buildSearchUrl?.(businessType, selectedCity);
@@ -479,6 +550,7 @@ export default function SearchEngine() {
   const totalAdded = jobs.reduce((s, j) => s + (j.totalAdded ?? 0), 0);
   const runningCount = jobs.filter(j => j.status === "running").length;
   const completedCount = jobs.filter(j => j.status === "completed").length;
+  const selectedPlatformHubTargets = getSearchHubPlatforms(selectedPlatform.id);
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto" dir="rtl">
@@ -645,11 +717,13 @@ export default function SearchEngine() {
               <Button
                 onClick={handleCreate}
                 disabled={createMutation.isPending}
-                className={`gap-2 text-white ${selectedPlatform.id === "google_maps" || selectedPlatform.id === "all" ? "bg-blue-600 hover:bg-blue-700" : selectedPlatform.id === "instagram" ? "bg-pink-700 hover:bg-pink-600" : selectedPlatform.id === "snapchat" ? "bg-yellow-700 hover:bg-yellow-600" : selectedPlatform.id === "tiktok" ? "bg-cyan-700 hover:bg-cyan-600" : selectedPlatform.id === "facebook" ? "bg-blue-700 hover:bg-blue-600" : "bg-emerald-700 hover:bg-emerald-600"}`}
+                className={`gap-2 text-white ${selectedPlatform.id === "google_maps" || selectedPlatform.id === "all" ? "bg-blue-600 hover:bg-blue-700" : selectedPlatform.id === "instagram" ? "bg-pink-700 hover:bg-pink-600" : selectedPlatform.id === "snapchat" ? "bg-yellow-700 hover:bg-yellow-600" : selectedPlatform.id === "tiktok" ? "bg-cyan-700 hover:bg-cyan-600" : selectedPlatform.id === "twitter" ? "bg-sky-700 hover:bg-sky-600" : selectedPlatform.id === "facebook" ? "bg-blue-700 hover:bg-blue-600" : "bg-emerald-700 hover:bg-emerald-600"}`}
               >
                 {createMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> :
+                  selectedPlatformHubTargets ? <Search className="w-4 h-4" /> :
                   selectedPlatform.mode === "manual" ? <ExternalLink className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                {selectedPlatform.mode === "manual" ? `افتح ${selectedPlatform.nameAr}` : "ابدأ البحث التلقائي"}
+                {selectedPlatformHubTargets ? "ابدأ بالمحرك الجديد" :
+                  selectedPlatform.mode === "manual" ? `افتح ${selectedPlatform.nameAr}` : "ابدأ البحث التلقائي"}
               </Button>
               <Button variant="outline" onClick={() => setShowCreateForm(false)}
                 className="border-zinc-700 text-zinc-400 hover:text-white bg-transparent">إلغاء</Button>

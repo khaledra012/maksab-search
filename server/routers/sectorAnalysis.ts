@@ -267,36 +267,4 @@ export const sectorAnalysisRouter = router({
 
       return lead || null;
     }),
-
-  // إحصائيات التحليل القطاعي
-  getSectorStats: protectedProcedure
-    .query(async () => {
-      const db = await getDb();
-      if (!db) return [];
-
-      const allLeads = await db.select({
-        sectorMain: leads.sectorMain,
-        analysisStatus: leads.analysisStatus,
-        urgencyLevel: leads.urgencyLevel,
-        leadPriorityScore: leads.leadPriorityScore,
-      }).from(leads);
-
-      const sectors = ["restaurants", "medical", "ecommerce", "digital_products", "general"] as Sector[];
-      return sectors.map(sector => {
-        const sectorLeads = allLeads.filter(l => l.sectorMain === sector);
-        const analyzed = sectorLeads.filter(l => l.analysisStatus === "completed").length;
-        const highPriority = sectorLeads.filter(l => (l.leadPriorityScore || 0) >= 7).length;
-        const urgent = sectorLeads.filter(l => l.urgencyLevel === "high").length;
-        return {
-          sector,
-          total: sectorLeads.length,
-          analyzed,
-          highPriority,
-          urgent,
-          avgPriority: sectorLeads.length > 0
-            ? Math.round(sectorLeads.reduce((s, l) => s + (l.leadPriorityScore || 0), 0) / sectorLeads.length)
-            : 0,
-        };
-      });
-    }),
 });

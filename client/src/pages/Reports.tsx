@@ -850,7 +850,7 @@ function AIReport() {
       {/* رأس الصفحة */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-white font-bold text-lg">التحليل الذكي الشامل</h2>
+          <h2 className="text-white font-bold text-lg">تحليل الأداء الشامل</h2>
           <p className="text-xs text-[#8696a0] mt-0.5">تحليل عميق لأداء النظام مع توصيات تطوير دقيقة</p>
         </div>
         <div className="flex items-center gap-2">
@@ -874,7 +874,7 @@ function AIReport() {
             {getInsights.isPending ? (
               <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> جاري التحليل...</>
             ) : (
-              <><Sparkles className="w-3.5 h-3.5" /> تحليل ذكي</>
+              <><Sparkles className="w-3.5 h-3.5" /> تشغيل التحليل</>
             )}
           </Button>
         </div>
@@ -1057,14 +1057,14 @@ function AIReport() {
       {!insights && !getInsights.isPending && (
         <div className="rounded-xl border p-10 text-center" style={{ background: "rgba(37,211,102,0.03)", borderColor: "rgba(37,211,102,0.1)" }}>
           <Sparkles className="w-12 h-12 text-[#25D366]/40 mx-auto mb-4" />
-          <p className="text-white font-medium mb-2">ابدأ التحليل الذكي</p>
-          <p className="text-xs text-[#8696a0] mb-4">اضغط على "تحليل ذكي" للحصول على تحليل شامل لأداء النظام مع توصيات تطوير دقيقة</p>
+          <p className="text-white font-medium mb-2">ابدأ التحليل</p>
+          <p className="text-xs text-[#8696a0] mb-4">اضغط على "تشغيل التحليل" للحصول على تحليل شامل لأداء النظام مع توصيات تطوير دقيقة</p>
           <Button
             onClick={() => getInsights.mutate({ period: parseInt(period) })}
             className="gap-2 bg-[#25D366] hover:bg-[#20b858] text-black"
           >
             <Sparkles className="w-4 h-4" />
-            تحليل ذكي
+            تشغيل التحليل
           </Button>
         </div>
       )}
@@ -1507,7 +1507,7 @@ function SmartReportsTab() {
       ) : filtered.length === 0 ? (
         <div className="text-center text-gray-400 py-10">
           <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">لا يوجد عملاء محللون بعد — قم بتحليل عملاء من صفحة التحليل الذكي</p>
+          <p className="text-sm">لا يوجد عملاء محللون بعد — قم بتحليل بعض العملاء أولًا</p>
         </div>
       ) : (
         <div className="space-y-2">

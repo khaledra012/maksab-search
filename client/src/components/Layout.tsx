@@ -36,7 +36,6 @@ const MAIN_NAV = [
 
 /** قسم المتابعة — متاح لجميع المستخدمين */
 const FOLLOWUP_NAV = [
-  { path: "/smart-analysis", label: "التحليل الذكي",      icon: Brain },
   { path: "/ai-agent",       label: "وكيل الذكاء الاصطناعي", icon: Bot },
 ];
 

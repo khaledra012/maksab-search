@@ -11,12 +11,9 @@ import {
   getSocialAnalysesByLeadId, createSocialAnalysis,
   getTopGaps, getDb,
   createSearchJob, getSearchJobById, getAllSearchJobs, updateSearchJob, deleteSearchJob, checkLeadDuplicate,
-  createInstagramSearch, updateInstagramSearch, getAllInstagramSearches,
-  getInstagramSearchById, createInstagramAccounts, getInstagramAccountsBySearchId,
-  markInstagramAccountAsLead,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
-import { dataSettings, aiSettings } from "../drizzle/schema";
+import { dataSettings } from "../drizzle/schema";
 import { eq, and, asc, sql, desc, like, or, gte, lte, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { invitationsRouter } from "./routers/invitations";
@@ -50,8 +47,6 @@ import { reportSchedulerRouter } from "./routers/reportScheduler";
 import { deduplicationRouter } from "./routers/deduplication";
 import { sectorAnalysisRouter } from "./routers/sectorAnalysis";
 import { pdfReportRouter } from "./routers/pdfReport";
-import { bulkAnalysisRouter } from "./routers/bulkAnalysis";
-import { analysisSettingsRouter } from "./routers/analysisSettings";
 import { scrapeWebsite, scrapeInstagram, scrapeLinkedIn, scrapeTwitter, scrapeTikTok, formatScrapedDataForLLM } from "./lib/brightDataScraper";
 import { fetchSocialPlatformData, extractSocialStats } from "./lib/brightDataSocialDatasets";
 import { brightDataAnalysisRouter } from "./routers/brightDataAnalysis";
@@ -2488,285 +2483,6 @@ const aiSearchRouter = router({
 // ===== WHATSAPP ROUTER =====
 
 // ===== INSTAGRAM ROUTER =====
-const instagramRouter = router({
-  // جلب كل عمليات البحث
-  listSearches: protectedProcedure.query(async () => {
-    return getAllInstagramSearches();
-  }),
-
-  // بدء بحث جديد بالهاشتاق
-  startSearch: protectedProcedure
-    .input(z.object({
-      hashtag: z.string().min(1),
-    }))
-    .mutation(async ({ input }) => {
-      // قراءة credentials من قاعدة البيانات أولاً، ثم متغيرات البيئة كبديل
-      const db = await getDb();
-      let token: string | null = null;
-      let appId: string | null = null;
-      if (db) {
-        const [settings] = await db.select().from(aiSettings).limit(1);
-        if (settings?.instagramApiEnabled && settings?.instagramAccessToken && settings?.instagramAppId) {
-          token = settings.instagramAccessToken;
-          appId = settings.instagramAppId;
-        }
-      }
-      // بديل: متغيرات البيئة
-      if (!token) token = process.env.INSTAGRAM_ACCESS_TOKEN || null;
-      if (!appId) appId = process.env.INSTAGRAM_APP_ID || null;
-      // إذا لا توجد credentials → رفض الطلب بدون توليد بيانات وهمية
-      if (!token || !appId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "يجب إضافة Instagram Access Token وApp ID في إعدادات AI لتفعيل البحث في إنستجرام. لا يمكن عرض نتائج بدون مصدر حقيقي.",
-        });
-      }
-      // تنظيف الهاشتاق وإنشاء سجل البحث
-      const hashtag = input.hashtag.replace(/^#/, "").trim();
-      const searchId = await createInstagramSearch({ hashtag, status: "running", resultsCount: 0 });
-      try {
-        // الخطوة 1: الحصول على معرف الهاشتاق
-        const hashtagRes = await fetch(
-          `https://graph.facebook.com/v18.0/ig_hashtag_search?user_id=${appId}&q=${encodeURIComponent(hashtag)}&access_token=${token}`
-        );
-        const hashtagData = await hashtagRes.json() as any;
-
-        if (!hashtagData.data || hashtagData.data.length === 0) {
-          await updateInstagramSearch(searchId, { status: "error", errorMsg: "لم يُعثر على الهاشتاق" });
-          return { searchId, status: "error", error: "لم يُعثر على الهاشتاق" };
-        }
-
-        const hashtagId = hashtagData.data[0].id;
-
-        // الخطوة 2: جلب المنشورات الحديثة بهذا الهاشتاق
-        const postsRes = await fetch(
-          `https://graph.facebook.com/v18.0/${hashtagId}/recent_media?user_id=${appId}&fields=id,caption,media_type,timestamp,owner&access_token=${token}&limit=50`
-        );
-        const postsData = await postsRes.json() as any;
-
-        if (!postsData.data || postsData.data.length === 0) {
-          await updateInstagramSearch(searchId, { status: "done", resultsCount: 0 });
-          return { searchId, status: "done", count: 0 };
-        }
-
-        // الخطوة 3: جلب تفاصيل كل حساب
-        const ownerIds = Array.from(new Set((postsData.data as any[]).map((p: any) => p.owner?.id).filter(Boolean))) as string[];
-        const accounts: any[] = [];
-
-        for (const ownerId of ownerIds.slice(0, 30)) {
-          try {
-            const profileRes = await fetch(
-              `https://graph.facebook.com/v18.0/${ownerId}?fields=id,username,name,biography,website,followers_count,follows_count,media_count,profile_picture_url,is_business_account,category&access_token=${token}`
-            );
-            const profile = await profileRes.json() as any;
-
-            if (profile.username) {
-              // استخراج الهاتف والإيميل من البيو
-              const bio = profile.biography || "";
-              const phoneMatch = bio.match(/(?:\+966|966|05|5)[0-9\s\-]{8,12}/);
-              const emailMatch = bio.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-
-              accounts.push({
-                searchId,
-                username: profile.username,
-                fullName: profile.name || null,
-                bio: bio || null,
-                website: profile.website || null,
-                followersCount: profile.followers_count || 0,
-                followingCount: profile.follows_count || 0,
-                postsCount: profile.media_count || 0,
-                profilePicUrl: profile.profile_picture_url || null,
-                isBusinessAccount: profile.is_business_account || false,
-                businessCategory: profile.category || null,
-                phone: phoneMatch ? phoneMatch[0].replace(/\s/g, "") : null,
-                email: emailMatch ? emailMatch[0] : null,
-                city: null,
-              });
-            }
-          } catch {
-            // تجاهل الحسابات التي لا يمكن جلبها
-          }
-        }
-
-        if (accounts.length > 0) {
-          await createInstagramAccounts(accounts);
-        }
-
-        await updateInstagramSearch(searchId, { status: "done", resultsCount: accounts.length });
-        return { searchId, status: "done", count: accounts.length };
-
-      } catch (err: any) {
-        await updateInstagramSearch(searchId, { status: "error", errorMsg: err.message });
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message });
-      }
-    }),
-
-  // جلب حسابات بحث معين
-  getAccounts: protectedProcedure
-    .input(z.object({ searchId: z.number() }))
-    .query(async ({ input }) => {
-      return getInstagramAccountsBySearchId(input.searchId);
-    }),
-
-  // إضافة حساب كـ lead
-  addAsLead: protectedProcedure
-    .input(z.object({
-      accountId: z.number(),
-      companyName: z.string(),
-      businessType: z.string(),
-      city: z.string().optional(),
-      instagramUrl: z.string().optional(),
-      phone: z.string().optional(),
-      email: z.string().optional(),
-      website: z.string().optional(),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const { accountId, ...leadData } = input;
-      const leadId = await createLeadWithResolution({
-        companyName: leadData.companyName,
-        businessType: leadData.businessType,
-        city: leadData.city || "غير محدد",
-        instagramUrl: leadData.instagramUrl || null,
-        verifiedPhone: leadData.phone || null,
-        website: leadData.website || null,
-        notes: leadData.notes || null,
-        country: "السعودية",
-      });
-      await markInstagramAccountAsLead(accountId, leadId ?? 0);
-      return { success: true, leadId: leadId ?? null };
-    }),
-
-  // ===== جلب بيانات الاتصال بـ Instagram =====
-  getCredentials: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return { appId: "", appSecret: "", accessToken: "" };
-    const [settings] = await db.select().from(aiSettings).limit(1);
-    return {
-      appId: settings?.instagramAppId || "",
-      appSecret: settings?.instagramAppSecret || "",
-      accessToken: settings?.instagramAccessToken || "",
-    };
-  }),
-
-  // ===== حفظ بيانات الاتصال بـ Instagram =====
-  saveCredentials: protectedProcedure
-    .input(z.object({
-      appId: z.string(),
-      appSecret: z.string(),
-      accessToken: z.string(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const [existing] = await db.select().from(aiSettings).limit(1);
-      if (existing) {
-        await db.update(aiSettings).set({
-          instagramAppId: input.appId || null,
-          instagramAppSecret: input.appSecret || null,
-          instagramAccessToken: input.accessToken || null,
-          instagramApiEnabled: !!(input.accessToken),
-        });
-      } else {
-        await db.insert(aiSettings).values({
-          instagramAppId: input.appId || null,
-          instagramAppSecret: input.appSecret || null,
-          instagramAccessToken: input.accessToken || null,
-          instagramApiEnabled: !!(input.accessToken),
-        });
-      }
-      return { success: true };
-    }),
-
-  // ===== اختبار الاتصال بـ Instagram =====
-  testConnection: protectedProcedure
-    .input(z.object({}))
-    .mutation(async () => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      const [settings] = await db.select().from(aiSettings).limit(1);
-      const token = settings?.instagramAccessToken || process.env.INSTAGRAM_ACCESS_TOKEN;
-      if (!token) {
-        return { success: false, error: "لا يوجد Access Token محفوظ" };
-      }
-      try {
-        const res = await fetch(
-          `https://graph.facebook.com/v18.0/me?fields=id,name&access_token=${token}`
-        );
-        const data = await res.json() as any;
-        if (data.error) {
-          return { success: false, error: data.error.message };
-        }
-        // جلب تفاصيل حساب Instagram
-        const igRes = await fetch(
-          `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`
-        );
-        const igData = await igRes.json() as any;
-        let igAccount = null;
-        if (igData.data && igData.data.length > 0) {
-          const pageId = igData.data[0].id;
-          const pageToken = igData.data[0].access_token;
-          const igPageRes = await fetch(
-            `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account&access_token=${pageToken}`
-          );
-          const igPageData = await igPageRes.json() as any;
-          if (igPageData.instagram_business_account) {
-            const igId = igPageData.instagram_business_account.id;
-            const profileRes = await fetch(
-              `https://graph.facebook.com/v18.0/${igId}?fields=username,name,followers_count,media_count&access_token=${pageToken}`
-            );
-            igAccount = await profileRes.json() as any;
-          }
-        }
-        return {
-          success: true,
-          account: igAccount || { username: data.name, name: data.name, followers: 0, mediaCount: 0 },
-        };
-      } catch (err: any) {
-        return { success: false, error: err.message };
-      }
-    }),
-
-  // اقتراح هاشتاقات بالذكاء الاصطناعي
-  suggestHashtags: protectedProcedure
-    .input(z.object({ niche: z.string() }))
-    .mutation(async ({ input }) => {
-      const response = await invokeLLM({
-        messages: [
-          {
-            role: "system",
-            content: "أنت خبير في التسويق الرقمي السعودي. مهمتك اقتراح هاشتاقات إنستغرام للبحث عن أنشطة تجارية سعودية."
-          },
-          {
-            role: "user",
-            content: `اقترح 10 هاشتاقات إنستغرام باللغة العربية للبحث عن: ${input.niche}\n\nأرجع JSON فقط: { "hashtags": ["هاشتاق1", "هاشتاق2", ...] }`
-          }
-        ],
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "hashtags_response",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                hashtags: { type: "array", items: { type: "string" } }
-              },
-              required: ["hashtags"],
-              additionalProperties: false
-            }
-          }
-        }
-      });
-      const content = response.choices[0].message.content;
-      const parsed = JSON.parse(typeof content === "string" ? content : JSON.stringify(content));
-      return parsed.hashtags as string[];
-    }),
-});
-
-// ===== DATA SETTINGS ROUTER =====
-
-// ===== DATA SETTINGS ROUTER =====
 const dataSettingsRouter = router({
   // جلب خيارات فئة معينة
   getByCategory: protectedProcedure
@@ -2856,7 +2572,6 @@ export const appRouter = router({
   search: searchRouter,
   searchJobs: searchJobsRouter,
   aiSearch: aiSearchRouter,
-  instagram: instagramRouter,
   dataSettings: dataSettingsRouter,
   invitations: invitationsRouter,
   aiConfig: aiSettingsRouter,
@@ -2891,8 +2606,6 @@ export const appRouter = router({
   deduplication: deduplicationRouter,
   sectorAnalysis: sectorAnalysisRouter,
   pdfReport: pdfReportRouter,
-  bulkAnalysis: bulkAnalysisRouter,
-  analysisSettings: analysisSettingsRouter,
   serpQueue: serpQueueRouter,
   seasons: seasonsRouter,
   reportStyle: reportStyleRouter,

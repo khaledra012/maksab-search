@@ -14,6 +14,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import { TRPCError } from "@trpc/server";
 import puppeteer from "puppeteer-core";
+import { buildGoogleSearchUrl } from "../lib/googleUrlBuilder";
 
 // ===== Bright Data Browser API =====
 const BRIGHT_DATA_WS_ENDPOINT = process.env.BRIGHT_DATA_WS_ENDPOINT || "";
@@ -52,6 +53,7 @@ async function openBrightDataBrowser() {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const ALL_CITIES_VALUE = "جميع المدن";
 
 // ===== أنماط التحقق من البيانات =====
 const PHONE_PATTERNS = [
@@ -212,6 +214,61 @@ async function scrapeGoogleSearch(query: string, page = 1): Promise<{
   return { items, rawHtmlText };
 }
 
+function normalizeGoogleSearchCity(city: string): string {
+  const normalized = city.trim();
+  return normalized === ALL_CITIES_VALUE ? "" : normalized;
+}
+
+function buildGoogleSearchQuery(
+  keyword: string,
+  city: string,
+  searchType: "businesses" | "general"
+): {
+  query: string;
+  analysisCity: string;
+} {
+  const normalizedCity = normalizeGoogleSearchCity(city);
+  const query =
+    searchType === "businesses"
+      ? [keyword, normalizedCity, "السعودية"].filter(Boolean).join(" ")
+      : [keyword, normalizedCity].filter(Boolean).join(" ");
+
+  return {
+    query,
+    analysisCity: normalizedCity || "السعودية",
+  };
+}
+
+async function runGoogleSerpFallback(
+  query: string,
+  page = 1
+): Promise<{
+  items: Array<{ title: string; link: string; snippet: string; displayLink: string }>;
+  rawHtmlText: string;
+}> {
+  const { serpRequest, parseGoogleResultsGeneric } = await import("./serpSearch.js");
+  const googleUrl = buildGoogleSearchUrl({ query, hl: "ar", gl: "sa", num: 10, page });
+  const serpHtml = await serpRequest(googleUrl);
+  const serpResults = parseGoogleResultsGeneric(serpHtml);
+
+  const items = serpResults
+    .map((r: any) => ({
+      title: r.displayName || "",
+      link: r.url || "",
+      snippet: r.bio || "",
+      displayLink: (() => {
+        try {
+          return new URL(r.url || "").hostname.replace("www.", "");
+        } catch {
+          return "";
+        }
+      })(),
+    }))
+    .filter((r: any) => r.title && r.link);
+
+  return { items, rawHtmlText: serpHtml };
+}
+
 // ===== دالة البحث الرئيسية =====
 export async function searchGoogleWeb(
   keyword: string,
@@ -224,9 +281,7 @@ export async function searchGoogleWeb(
   query: string;
   totalResults?: string;
 }> {
-  const query = searchType === "businesses"
-    ? `${keyword} ${city} السعودية`
-    : `${keyword} ${city}`;
+  const { query, analysisCity } = buildGoogleSearchQuery(keyword, city, searchType);
 
   let items: Array<{ title: string; link: string; snippet: string; displayLink: string }> = [];
   let rawHtmlText = "";
@@ -235,23 +290,24 @@ export async function searchGoogleWeb(
     const scraped = await scrapeGoogleSearch(query, page);
     items = scraped.items;
     rawHtmlText = scraped.rawHtmlText;
+    if (items.length === 0) {
+      console.warn("[Google Search] Browser returned 0 results, trying SERP fallback");
+      const fallback = await runGoogleSerpFallback(query, page);
+      items = fallback.items;
+      rawHtmlText = fallback.rawHtmlText;
+    }
   } catch (puppeteerErr: any) {
     // ─── Fallback: SERP REST API ─────────────────────────────────────────────
     console.warn("[Google Search] Puppeteer failed, falling back to SERP REST API:", puppeteerErr.message);
     try {
-      const { serpRequest } = await import("./serpSearch.js");
-      const { parseGoogleResultsPublic } = await import("./serpSearch.js");
-      const serpHtml = await serpRequest(query.startsWith("http") ? query : `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=ar&gl=SA&num=10`);
-      const serpResults = parseGoogleResultsPublic(serpHtml, "");
-      items = serpResults.map((r: any) => ({
-        title: r.displayName || r.title || "",
-        link: r.profileUrl || r.url || "",
-        snippet: r.bio || r.description || "",
-        displayLink: (() => { try { return new URL(r.profileUrl || r.url || "").hostname.replace("www.", ""); } catch { return ""; } })(),
-      })).filter((r: any) => r.title && r.link);
-      rawHtmlText = serpHtml;
+      const fallback = await runGoogleSerpFallback(query, page);
+      items = fallback.items;
+      rawHtmlText = fallback.rawHtmlText;
       console.log(`[Google Search] SERP fallback returned ${items.length} results`);
     } catch (serpErr: any) {
+      throw new Error(
+        `[Google Search] Browser failed: ${puppeteerErr.message || "unknown error"} | SERP fallback failed: ${serpErr.message || "unknown error"}`
+      );
       // كلا الطريقتين فشلتا — أرجع الخطأ الأصلي
       throw new Error(puppeteerErr.message || "فشل في البحث عبر Bright Data");
     }
@@ -271,7 +327,7 @@ export async function searchGoogleWeb(
     .map((r, i) => `[${i + 1}] العنوان: ${r.title}\nالرابط: ${r.link}\nالمقتطف: ${r.snippet}`)
     .join("\n\n");
 
-  return await analyzeWithAI(resultsText, keyword, city, realPhones, realWebsites, query, items);
+  return await analyzeWithAI(resultsText, keyword, analysisCity, realPhones, realWebsites, query, items);
 }
 
 async function analyzeWithAI(

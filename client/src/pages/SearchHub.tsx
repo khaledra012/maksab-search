@@ -2,7 +2,7 @@
  * مركز البحث الاحترافي - نسخة 3.0
  * Layout ثنائي الأعمدة: نتائج البحث + ماكينة المقارنة والدمج
  */
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,11 +50,66 @@ const PLATFORMS = [
 ] as const;
 
 type PlatformId = typeof PLATFORMS[number]["id"];
+const SEARCH_FETCH_LIMIT_OPTIONS = [10, 20, 50] as const;
+type SearchFetchLimit = typeof SEARCH_FETCH_LIMIT_OPTIONS[number];
+
+function isPlatformId(value: string | null): value is PlatformId {
+  return !!value && PLATFORMS.some((platform) => platform.id === value);
+}
+
+function parsePlatformIds(value: string | null): PlatformId[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(isPlatformId);
+}
+
+function isSearchFetchLimit(value: number): value is SearchFetchLimit {
+  return SEARCH_FETCH_LIMIT_OPTIONS.includes(value as SearchFetchLimit);
+}
+
+function getVerificationBadge(result: any): {
+  label: string;
+  className: string;
+  icon: typeof Shield;
+} | null {
+  switch (result.verificationLevel) {
+    case "dataset":
+      return {
+        label: "موثوق",
+        className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+        icon: Shield,
+      };
+    case "browser_verified":
+      return {
+        label: "متحقق",
+        className: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
+        icon: SearchCheck,
+      };
+    case "candidate_only":
+      return {
+        label: "مرشح",
+        className: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+        icon: Target,
+      };
+    case "serp_fallback":
+      return {
+        label: "احتياطي",
+        className: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+        icon: AlertTriangle,
+      };
+    default:
+      return null;
+  }
+}
 
 // ===== مكون بطاقة نتيجة =====
 function ResultCard({ result, onAdd, isDuplicate, platform }: {
   result: any; onAdd: (r: any) => void; isDuplicate?: boolean; platform: typeof PLATFORMS[number];
 }) {
+  const verificationBadge = getVerificationBadge(result);
+
   return (
     <Card className={`group transition-all duration-200 ${isDuplicate ? "opacity-60 border-orange-500/30 bg-orange-500/5" : "hover:border-primary/40 hover:shadow-sm"}`}>
       <CardContent className="p-3">
@@ -77,6 +132,12 @@ function ResultCard({ result, onAdd, isDuplicate, platform }: {
                   <span className="flex items-center gap-0.5 text-xs text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded">
                     <Star className="w-2.5 h-2.5 fill-current" />{result.rating}
                   </span>
+                )}
+                {verificationBadge && (
+                  <Badge variant="outline" className={`text-[10px] gap-1 ${verificationBadge.className}`}>
+                    <verificationBadge.icon className="w-2.5 h-2.5" />
+                    {verificationBadge.label}
+                  </Badge>
                 )}
                 {isDuplicate && (
                   <Badge variant="outline" className="text-xs bg-orange-500/20 text-orange-400 border-orange-400/40 gap-1">
@@ -132,6 +193,7 @@ export default function SearchHub() {
     getFilteredResults, session, isAnyLoading: ctxAnyLoading,
     totalResults: ctxTotalResults, totalFiltered,
     targetCount, autoSave, autoMerge, selectedPlatforms,
+    setSelectedPlatforms, setTargetCount: setSearchTargetCount,
     activeSalesFiltersCount,
   } = useSearch();
 
@@ -140,6 +202,7 @@ export default function SearchHub() {
   const [activeTab, setActiveTab] = useState<PlatformId>("googleWeb");
   const [showFilters, setShowFilters] = useState(false);
   const [onlyWithPhone, setOnlyWithPhone] = useState(false);
+  const [fetchLimit, setFetchLimit] = useState<SearchFetchLimit>(10);
   const [resultLimit, setResultLimit] = useState(25);
 
   // نتائج البحث
@@ -157,19 +220,27 @@ export default function SearchHub() {
     instagramUrl: "", tiktokUrl: "", snapchatUrl: "", twitterUrl: "", facebookUrl: "", linkedinUrl: "",
   });
   const [addedNames, setAddedNames] = useState<Set<string>>(new Set());
+  const parsedLaunchRef = useRef(false);
+  const autoRunRequestRef = useRef<null | {
+    keyword: string;
+    city: string;
+    limit: SearchFetchLimit;
+    tab: PlatformId;
+    platforms: PlatformId[];
+  }>(null);
+  const autoRunStartedRef = useRef(false);
 
   // API
-  const searchInstagramMut = trpc.socialSearch.searchInstagram.useMutation();
-  const searchTiktokMut = trpc.socialSearch.searchTikTok.useMutation();
-  const searchSnapchatMut = trpc.socialSearch.searchSnapchat.useMutation();
-  const searchTwitterMut = trpc.socialSearch.searchTwitter.useMutation();
-  const searchLinkedInMut = trpc.socialSearch.searchLinkedIn.useMutation();
-  const searchFacebookMut = trpc.socialSearch.searchFacebook.useMutation();
+  const searchInstagramMut = trpc.brightDataSearch.searchInstagramDataset.useMutation();
+  const searchTiktokMut = trpc.brightDataSearch.searchTikTokVerified.useMutation();
+  const searchSnapchatMut = trpc.brightDataSearch.searchSnapchatVerified.useMutation();
+  const searchTwitterMut = trpc.brightDataSearch.searchTwitterVerified.useMutation();
+  const searchLinkedInMut = trpc.brightDataSearch.searchLinkedInVerified.useMutation();
+  const searchFacebookMut = trpc.brightDataSearch.searchFacebookVerified.useMutation();
   const googleWebSearchMut = trpc.googleSearch.searchWeb.useMutation();
   const suggestHashtagsMut = trpc.socialSearch.suggestSocialHashtags.useMutation();
   const brightDataConnectionQuery = trpc.brightDataSearch.checkConnection.useQuery();
   const createLead = trpc.leads.create.useMutation();
-  const addInstagramAsLead = trpc.instagram.addAsLead.useMutation();
   const enhanceQueryMut = trpc.searchBehavior.enhanceQuery.useMutation();
   const logSearchSessionMut = trpc.searchBehavior.logSearchSession.useMutation();
   const [suggestedHashtags, setSuggestedHashtags] = useState<string[]>([]);
@@ -182,6 +253,52 @@ export default function SearchHub() {
     const name = (result.name || result.fullName || "").trim().toLowerCase();
     return name.length > 0 && existingNames.has(name);
   };
+
+  useEffect(() => {
+    if (parsedLaunchRef.current) return;
+    parsedLaunchRef.current = true;
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autorun") !== "1") return;
+
+    const nextKeyword = (params.get("keyword") || "").trim();
+    const nextCity = (params.get("city") || "").trim();
+    if (!nextKeyword || !nextCity) return;
+
+    const nextLimitRaw = Number(params.get("limit"));
+    const nextLimit = isSearchFetchLimit(nextLimitRaw) ? nextLimitRaw : 10;
+    const nextTabParam = params.get("tab");
+    const nextTab = isPlatformId(nextTabParam) ? nextTabParam : "googleWeb";
+    const nextPlatforms = parsePlatformIds(params.get("platforms"));
+    const nextTargetCountRaw = Number(params.get("targetCount"));
+
+    setKeyword(nextKeyword);
+    setCity(nextCity);
+    setFetchLimit(nextLimit);
+    setResultLimit(nextLimit);
+    setActiveTab(nextTab);
+
+    if (nextPlatforms.length > 0) {
+      setSelectedPlatforms(nextPlatforms);
+    }
+
+    if (Number.isFinite(nextTargetCountRaw) && nextTargetCountRaw > 0) {
+      setSearchTargetCount(Math.min(nextTargetCountRaw, 50));
+    }
+
+    autoRunRequestRef.current = {
+      keyword: nextKeyword,
+      city: nextCity,
+      limit: nextLimit,
+      tab: nextTab,
+      platforms: nextPlatforms,
+    };
+    autoRunStartedRef.current = false;
+  }, [setSearchTargetCount, setSelectedPlatforms]);
+
+  useEffect(() => {
+    setResultLimit(fetchLimit);
+  }, [fetchLimit]);
 
   // ===== دوال البحث =====
   const setLoadingPlatform = (platform: PlatformId, val: boolean) => setLoading(prev => ({ ...prev, [platform]: val }));
@@ -217,82 +334,84 @@ export default function SearchHub() {
     setLoadingPlatform("instagram", true); updateLoading("instagram", true);
     setResultsPlatform("instagram", []); updateResults("instagram", []);
     try {
-      const res = await searchInstagramMut.mutateAsync({ keyword, city });
+      const res = await searchInstagramMut.mutateAsync({ keyword, location: city, limit: fetchLimit });
       const data = (res as any)?.results || res || [];
       setResultsPlatform("instagram", data); updateResults("instagram", data);
       if (!data.length) toast.info("لا توجد نتائج في إنستجرام");
       else toast.success(`${data.length} نتيجة من إنستجرام`);
     } catch (e: any) { handleBrightDataError(e, "إنستجرام"); updateError("instagram", e.message); }
     finally { setLoadingPlatform("instagram", false); updateLoading("instagram", false); }
-  }, [keyword, city, updateLoading, updateResults, updateError]);
+  }, [keyword, city, fetchLimit, updateLoading, updateResults, updateError]);
 
   const searchTiktok = useCallback(async () => {
     if (!keyword.trim()) return;
     setLoadingPlatform("tiktok", true); updateLoading("tiktok", true);
     setResultsPlatform("tiktok", []); updateResults("tiktok", []);
     try {
-      const res = await searchTiktokMut.mutateAsync({ keyword, city });
+      const res = await searchTiktokMut.mutateAsync({ keyword, location: city, limit: fetchLimit });
       const data = (res as any)?.results || res || [];
       setResultsPlatform("tiktok", data); updateResults("tiktok", data);
       if (!data.length) toast.info("لا توجد نتائج في تيك توك");
+      else toast.success(`${data.length} نتيجة من تيك توك`);
     } catch (e: any) { handleBrightDataError(e, "تيك توك"); updateError("tiktok", e.message); }
     finally { setLoadingPlatform("tiktok", false); updateLoading("tiktok", false); }
-  }, [keyword, city, updateLoading, updateResults, updateError]);
+  }, [keyword, city, fetchLimit, updateLoading, updateResults, updateError]);
 
   const searchSnapchat = useCallback(async () => {
     if (!keyword.trim()) return;
     setLoadingPlatform("snapchat", true); updateLoading("snapchat", true);
     setResultsPlatform("snapchat", []); updateResults("snapchat", []);
     try {
-      const res = await searchSnapchatMut.mutateAsync({ keyword, city });
-      const data = (res as any)?.results || res || [];
+      const res = await searchSnapchatMut.mutateAsync({ keyword, location: city, limit: fetchLimit });
+      const data = res.results || [];
       setResultsPlatform("snapchat", data); updateResults("snapchat", data);
       if (!data.length) toast.info("لا توجد نتائج في سناب شات");
+      else toast.success(`${data.length} نتيجة من سناب شات`);
     } catch (e: any) { handleBrightDataError(e, "سناب شات"); updateError("snapchat", e.message); }
     finally { setLoadingPlatform("snapchat", false); updateLoading("snapchat", false); }
-  }, [keyword, city, updateLoading, updateResults, updateError]);
+  }, [keyword, city, fetchLimit, updateLoading, updateResults, updateError]);
 
   const searchTwitter = useCallback(async () => {
     if (!keyword.trim()) return;
     setLoadingPlatform("twitter", true); updateLoading("twitter", true);
     setResultsPlatform("twitter", []); updateResults("twitter", []);
     try {
-      const res = await searchTwitterMut.mutateAsync({ keyword, city });
+      const res = await searchTwitterMut.mutateAsync({ keyword, location: city, limit: fetchLimit });
       const data = res.results || [];
       setResultsPlatform("twitter", data); updateResults("twitter", data);
       if (!data.length) toast.info("لا توجد نتائج في تويتر");
       else toast.success(`${data.length} نتيجة من تويتر`);
-    } catch (e: any) { toast.error("خطأ في تويتر", { description: e.message }); updateError("twitter", e.message); }
+    } catch (e: any) { handleBrightDataError(e, "تويتر"); updateError("twitter", e.message); }
     finally { setLoadingPlatform("twitter", false); updateLoading("twitter", false); }
-  }, [keyword, city, updateLoading, updateResults, updateError]);
+  }, [keyword, city, fetchLimit, updateLoading, updateResults, updateError]);
 
   const searchLinkedIn = useCallback(async () => {
     if (!keyword.trim()) return;
     setLoadingPlatform("linkedin", true); updateLoading("linkedin", true);
     setResultsPlatform("linkedin", []); updateResults("linkedin", []);
     try {
-      const res = await searchLinkedInMut.mutateAsync({ keyword, city });
+      const res = await searchLinkedInMut.mutateAsync({ keyword, location: city, limit: fetchLimit });
       const data = res.results || [];
       setResultsPlatform("linkedin", data); updateResults("linkedin", data);
       if (!data.length) toast.info("لا توجد نتائج في لينكدإن");
       else toast.success(`${data.length} نتيجة من لينكدإن`);
-    } catch (e: any) { toast.error("خطأ في لينكدإن", { description: e.message }); updateError("linkedin", e.message); }
+    } catch (e: any) { handleBrightDataError(e, "لينكدإن"); updateError("linkedin", e.message); }
     finally { setLoadingPlatform("linkedin", false); updateLoading("linkedin", false); }
-  }, [keyword, city, updateLoading, updateResults, updateError]);
+  }, [keyword, city, fetchLimit, updateLoading, updateResults, updateError]);
 
   const searchFacebook = useCallback(async () => {
     if (!keyword.trim()) return;
     setLoadingPlatform("facebook", true); updateLoading("facebook", true);
     setResultsPlatform("facebook", []); updateResults("facebook", []);
     try {
-      const res = await searchFacebookMut.mutateAsync({ keyword, city });
+      const res = await searchFacebookMut.mutateAsync({ keyword, location: city, limit: fetchLimit });
       const data = res.results || [];
       setResultsPlatform("facebook", data); updateResults("facebook", data);
       if (!data.length) toast.info("لا توجد نتائج في فيسبوك");
       else toast.success(`${data.length} نتيجة من فيسبوك`);
-    } catch (e: any) { toast.error("خطأ في فيسبوك", { description: e.message }); updateError("facebook", e.message); }
+    } catch (e: any) { handleBrightDataError(e, "فيسبوك"); updateError("facebook", e.message); }
     finally { setLoadingPlatform("facebook", false); updateLoading("facebook", false); }
-  }, [keyword, city, updateLoading, updateResults, updateError]);
+  }, [keyword, city, fetchLimit, updateLoading, updateResults, updateError]);
 
   const handleSearchAll = useCallback(() => {
     if (!keyword.trim()) { toast.error("أدخل كلمة البحث أولاً"); return; }
@@ -306,8 +425,40 @@ export default function SearchHub() {
     };
     const toRun = selectedPlatforms.length > 0 ? selectedPlatforms : Object.keys(platformFns);
     toRun.forEach(p => platformFns[p]?.());
-    toast.info(`بدأ البحث في ${toRun.length} منصة`, { description: "يعمل في الخلفية — يمكنك التنقل بحرية" });
-  }, [keyword, city, startSearch, selectedPlatforms, searchGoogleWeb, searchInstagram, searchTiktok, searchSnapchat, searchTwitter, searchLinkedIn, searchFacebook]);
+    toast.info(`بدأ البحث في ${toRun.length} منصة`, {
+      description: `حتى ${fetchLimit} نتيجة لكل منصة${fetchLimit > 10 ? "، وقد يستغرق وقتًا أطول" : ""}`,
+    });
+  }, [keyword, city, fetchLimit, startSearch, selectedPlatforms, searchGoogleWeb, searchInstagram, searchTiktok, searchSnapchat, searchTwitter, searchLinkedIn, searchFacebook]);
+
+  useEffect(() => {
+    const request = autoRunRequestRef.current;
+    if (!request || autoRunStartedRef.current) return;
+
+    const platformsReady =
+      request.platforms.length === 0 ||
+      (
+        request.platforms.length === selectedPlatforms.length &&
+        request.platforms.every((platform) => selectedPlatforms.includes(platform))
+      );
+
+    if (
+      keyword !== request.keyword ||
+      city !== request.city ||
+      fetchLimit !== request.limit ||
+      !platformsReady
+    ) {
+      return;
+    }
+
+    autoRunStartedRef.current = true;
+    setActiveTab(request.tab);
+    handleSearchAll();
+    autoRunRequestRef.current = null;
+
+    if (window.location.search) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [keyword, city, fetchLimit, selectedPlatforms, handleSearchAll]);
 
   const handleSearch = () => {
     const searchFns: Record<PlatformId, () => void> = {
@@ -353,20 +504,16 @@ export default function SearchHub() {
       if (addForm.twitterUrl) cleanUrls.twitterUrl = addForm.twitterUrl;
       if (addForm.facebookUrl) cleanUrls.facebookUrl = addForm.facebookUrl;
       if (addForm.linkedinUrl) cleanUrls.linkedinUrl = addForm.linkedinUrl;
-      if (addDialog.platform === "instagram" && r.id) {
-        await addInstagramAsLead.mutateAsync({ accountId: r.id, companyName: addForm.companyName, businessType: addForm.businessType || "غير محدد", city: addForm.city, instagramUrl: addForm.instagramUrl || `https://instagram.com/${username}`, phone: addForm.phone || undefined, website: addForm.website || undefined, notes: addForm.notes || undefined });
-      } else {
-        await createLead.mutateAsync({
-          companyName: addForm.companyName,
-          businessType: addForm.businessType || "غير محدد",
-          city: addForm.city || "غير محدد",
-          verifiedPhone: addForm.phone || undefined,
-          email: addForm.email || undefined,
-          website: addForm.website || undefined,
-          notes: addForm.notes || undefined,
-          ...cleanUrls,
-        });
-      }
+      await createLead.mutateAsync({
+        companyName: addForm.companyName,
+        businessType: addForm.businessType || "غير محدد",
+        city: addForm.city || "غير محدد",
+        verifiedPhone: addForm.phone || undefined,
+        email: addForm.email || undefined,
+        website: addForm.website || undefined,
+        notes: addForm.notes || undefined,
+        ...cleanUrls,
+      });
       setAddedNames(prev => { const next = new Set(prev); next.add(addForm.companyName); return next; });
       toast.success("تمت الإضافة كعميل محتمل", { description: addForm.companyName });
       setAddDialog({ open: false, result: null, platform: "" });
@@ -469,6 +616,19 @@ export default function SearchHub() {
               <SelectItem value="جميع المدن"><span className="font-semibold text-primary">جميع المدن</span></SelectItem>
               <SelectSeparator />
               {SAUDI_CITIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={String(fetchLimit)} onValueChange={(value) => setFetchLimit(Number(value) as SearchFetchLimit)}>
+            <SelectTrigger className="w-28 h-10 text-sm shrink-0" title="زيادة العدد ترفع وقت وتكلفة البحث">
+              <BarChart2 className="w-3.5 h-3.5 ml-1 text-muted-foreground shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEARCH_FETCH_LIMIT_OPTIONS.map((option) => (
+                <SelectItem key={option} value={String(option)}>
+                  {option} نتيجة
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button onClick={handleSearch} disabled={!keyword.trim() || loading[activeTab]} className="h-10 gap-2 px-4 shrink-0">
@@ -876,8 +1036,8 @@ export default function SearchHub() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAddDialog({ open: false, result: null, platform: "" })}>إلغاء</Button>
-            <Button onClick={handleAddLead} disabled={!addForm.companyName || createLead.isPending || addInstagramAsLead.isPending} className="gap-2">
-              {(createLead.isPending || addInstagramAsLead.isPending) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            <Button onClick={handleAddLead} disabled={!addForm.companyName || createLead.isPending} className="gap-2">
+              {createLead.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               إضافة كعميل
             </Button>
           </DialogFooter>

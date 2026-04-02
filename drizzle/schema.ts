@@ -152,9 +152,7 @@ export const leads = mysqlTable("leads", {
   aiConfidenceScore: float("ai_confidence_score").default(0),
   lastAnalyzedAt: bigint("last_analyzed_at", { mode: "number" }),
 
-  // ===== Phase 1: Bulk Analysis =====
-  bulkAnalysisBatchId: varchar("bulk_analysis_batch_id", { length: 100 }),
-  bulkAnalysisStatus: mysqlEnum("bulk_analysis_status", ["idle", "queued", "processing", "done", "failed", "skipped"]).default("idle"),
+  // ===== Processing Queue =====
   processingStatus: mysqlEnum("processing_status", ["pending", "in_progress", "completed", "failed", "skipped"]).default("pending"),
   processingErrorMessage: text("processing_error_message"),
   jobQueueStatus: mysqlEnum("job_queue_status", ["idle", "queued", "running", "done", "failed"]).default("idle"),
@@ -334,42 +332,6 @@ export const whatsappTemplates = mysqlTable("whatsapp_templates", {
 export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
 export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
 
-// ===== INSTAGRAM SEARCHES TABLE =====
-export const instagramSearches = mysqlTable("instagram_searches", {
-  id: int("id").autoincrement().primaryKey(),
-  hashtag: varchar("hashtag", { length: 100 }).notNull(),
-  resultsCount: int("resultsCount").default(0).notNull(),
-  status: mysqlEnum("status", ["pending", "running", "done", "error"]).default("pending").notNull(),
-  errorMsg: text("errorMsg"),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
-export type InstagramSearch = typeof instagramSearches.$inferSelect;
-export type InsertInstagramSearch = typeof instagramSearches.$inferInsert;
-
-// ===== INSTAGRAM ACCOUNTS TABLE =====
-export const instagramAccounts = mysqlTable("instagram_accounts", {
-  id: int("id").autoincrement().primaryKey(),
-  searchId: int("searchId").notNull(),
-  username: varchar("username", { length: 100 }).notNull(),
-  fullName: varchar("fullName", { length: 200 }),
-  bio: text("bio"),
-  website: varchar("website", { length: 500 }),
-  followersCount: int("followersCount").default(0),
-  followingCount: int("followingCount").default(0),
-  postsCount: int("postsCount").default(0),
-  profilePicUrl: text("profilePicUrl"),
-  isBusinessAccount: boolean("isBusinessAccount").default(false),
-  businessCategory: varchar("businessCategory", { length: 100 }),
-  phone: varchar("phone", { length: 30 }),
-  email: varchar("email", { length: 200 }),
-  city: varchar("city", { length: 100 }),
-  isAddedAsLead: boolean("isAddedAsLead").default(false),
-  leadId: int("leadId"),
-  discoveredAt: timestamp("discoveredAt").defaultNow().notNull(),
-});
-export type InstagramAccount = typeof instagramAccounts.$inferSelect;
-export type InsertInstagramAccount = typeof instagramAccounts.$inferInsert;
-
 // ===== USER INVITATIONS TABLE =====
 export const userInvitations = mysqlTable("user_invitations", {
   id: int("id").autoincrement().primaryKey(),
@@ -468,10 +430,6 @@ export const aiSettings = mysqlTable("ai_settings", {
   voiceReplyScope: varchar("voice_reply_scope", { length: 20 }).default("voice_only").notNull(), // voice_only | all_messages
   transcribeIncoming: boolean("transcribeIncoming").default(true).notNull(), // تحويل الصوتيات الواردة لنص
   // إعدادات Instagram API
-  instagramAccessToken: text("instagramAccessToken"), // Instagram Graph API Access Token
-  instagramAppId: varchar("instagramAppId", { length: 100 }), // Instagram App ID (User ID)
-  instagramAppSecret: varchar("instagramAppSecret", { length: 200 }), // Instagram App Secret
-  instagramApiEnabled: boolean("instagramApiEnabled").default(false).notNull(), // تفعيل Instagram API
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1308,24 +1266,6 @@ export const agentLogs = mysqlTable("agent_logs", {
 });
 export type AgentLog = typeof agentLogs.$inferSelect;
 export type InsertAgentLog = typeof agentLogs.$inferInsert;
-
-// ===== ANALYSIS SETTINGS TABLE (إعدادات التأسيس للتحليل الذكي) =====
-export const analysisSettings = mysqlTable("analysis_settings", {
-  id: int("id").autoincrement().primaryKey(),
-  userId: int("userId").notNull().unique(),
-  salesGoalMonthly: int("salesGoalMonthly").default(50),
-  primarySector: varchar("primarySector", { length: 100 }).default("general"),
-  communicationStyle: varchar("communicationStyle", { length: 50 }).default("professional"),
-  targetCities: text("targetCities"),
-  salesApproach: varchar("salesApproach", { length: 50 }).default("sa_arabic"),
-  reportLanguage: varchar("reportLanguage", { length: 20 }).default("arabic"),
-  autoAnalyzeOnAdd: boolean("autoAnalyzeOnAdd").default(true),
-  priorityThreshold: int("priorityThreshold").default(7),
-  customInstructions: text("customInstructions"),
-  updatedAt: bigint("updatedAt", { mode: "number" }),
-});
-export type AnalysisSettings = typeof analysisSettings.$inferSelect;
-export type InsertAnalysisSettings = typeof analysisSettings.$inferInsert;
 
 // ===== SERP SEARCH RESULTS TABLE =====
 // تخزين نتائج البحث من SERP API (Instagram, TikTok, Snapchat, Facebook, Twitter)

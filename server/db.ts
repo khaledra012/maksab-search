@@ -570,57 +570,6 @@ export async function createLeadWithResolution(data: InsertLead): Promise<number
 }
 // PHASE 3 — asset persistence deferred: linkAssetsToLead(leadId, assets: LeadAsset[])
 
-// ===== INSTAGRAM HELPERS =====
-import {
-  instagramSearches, InsertInstagramSearch, InstagramSearch,
-  instagramAccounts, InsertInstagramAccount, InstagramAccount,
-} from "../drizzle/schema";
-
-export async function createInstagramSearch(data: InsertInstagramSearch): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const result = await db.insert(instagramSearches).values(data);
-  return (result[0] as any).insertId;
-}
-
-export async function updateInstagramSearch(id: number, data: Partial<InstagramSearch>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(instagramSearches).set(data).where(eq(instagramSearches.id, id));
-}
-
-export async function getAllInstagramSearches(): Promise<InstagramSearch[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(instagramSearches).orderBy(desc(instagramSearches.createdAt));
-}
-
-export async function getInstagramSearchById(id: number): Promise<InstagramSearch | null> {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(instagramSearches).where(eq(instagramSearches.id, id)).limit(1);
-  return result[0] || null;
-}
-
-export async function createInstagramAccounts(accounts: InsertInstagramAccount[]): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  if (accounts.length === 0) return;
-  await db.insert(instagramAccounts).values(accounts);
-}
-
-export async function getInstagramAccountsBySearchId(searchId: number): Promise<InstagramAccount[]> {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(instagramAccounts).where(eq(instagramAccounts.searchId, searchId));
-}
-
-export async function markInstagramAccountAsLead(accountId: number, leadId: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  await db.update(instagramAccounts).set({ isAddedAsLead: true, leadId }).where(eq(instagramAccounts.id, accountId));
-}
-
 // ===== CAMPAIGNS HELPERS =====
 export async function getCampaigns(): Promise<Campaign[]> {
   const db = await getDb();

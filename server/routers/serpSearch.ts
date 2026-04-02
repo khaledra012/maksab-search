@@ -470,7 +470,8 @@ async function multiQuerySearch(
   query: string,
   location: string | undefined,
   label: string,
-  useResidential = false
+  useResidential = false,
+  limit = 20
 ): Promise<Array<{ username: string; displayName: string; bio: string; url: string }>> {
   const variants = buildQueryVariants(query, location, site);
   const seen = new Set<string>();
@@ -506,8 +507,7 @@ async function multiQuerySearch(
           allResults.push(r);
         }
       }
-      // إذا وجدنا 20+ نتيجة، نوقف البحث
-      if (allResults.length >= 20) break;
+      if (allResults.length >= limit) break;
     } catch (err: any) {
       console.warn(`[${label}] query failed: ${q} - ${err.message}`);
     }
@@ -516,25 +516,25 @@ async function multiQuerySearch(
   // فلتر جغرافي: استبعاد النتائج التي تحتوي على مؤشر دولة أخرى
   const filtered = filterSaudiResults(allResults);
   console.log(`[${label}] Total unique results: ${allResults.length}, after geo-filter: ${filtered.length}`);
-  return filtered;
+  return filtered.slice(0, limit);
 }
 
 // ===== البحث في Google عن حسابات Instagram =====
-export async function searchInstagramSERP(query: string, location?: string): Promise<Array<{
+export async function searchInstagramSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
-  return multiQuerySearch("instagram.com", query, location, "Instagram SERP", false);
+  return multiQuerySearch("instagram.com", query, location, "Instagram SERP", false, limit);
 }
 
 // ===== البحث في Google عن حسابات TikTok =====
-export async function searchTikTokSERP(query: string, location?: string): Promise<Array<{
+export async function searchTikTokSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
-  return multiQuerySearch("tiktok.com", query, location, "TikTok SERP", false);
+  return multiQuerySearch("tiktok.com", query, location, "TikTok SERP", false, limit);
 }
 
 // ===== البحث في Google عن حسابات Snapchat =====
-export async function searchSnapchatSERP(query: string, location?: string): Promise<Array<{
+export async function searchSnapchatSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
   const loc = location || "";
@@ -569,26 +569,33 @@ export async function searchSnapchatSERP(query: string, location?: string): Prom
           allResults.push(r);
         }
       }
-      if (allResults.length >= 20) break;
+      if (allResults.length >= limit) break;
     } catch (err: any) {
       console.warn(`[Snapchat SERP] query failed: ${q} - ${err.message}`);
     }
   }
 
   console.log(`[Snapchat SERP] Total unique results: ${allResults.length}`);
-  return allResults;
+  return allResults.slice(0, limit);
 }
 
 // ===== البحث في Google عن حسابات LinkedIn =====
-export async function searchLinkedInSERP(query: string, location?: string): Promise<Array<{
+export async function searchLinkedInSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
   const loc = location || "";
   const locAr = loc ? `${loc} السعودية` : "السعودية";
+  const locEn = loc ? `${translateToEnglish(loc)} Saudi Arabia` : "Saudi Arabia";
+  const queryEn = translateToEnglish(query);
   const variants = [
     `site:linkedin.com/company ${query} ${locAr}`,
+    `site:linkedin.com/company ${queryEn} ${locEn}`,
+    `site:linkedin.com/company ${queryEn} ${translateToEnglish(loc || "riyadh")}`,
     `site:linkedin.com/in ${query} ${locAr}`,
+    `site:linkedin.com/in ${queryEn} ${locEn}`,
     `site:linkedin.com ${query} Saudi Arabia`,
+    `site:linkedin.com ${queryEn} ${locEn}`,
+    `linkedin company ${queryEn} ${locEn}`,
   ];
   const seen = new Set<string>();
   const allResults: Array<{ username: string; displayName: string; bio: string; url: string }> = [];
@@ -611,11 +618,11 @@ export async function searchLinkedInSERP(query: string, location?: string): Prom
       if (!seen.has(r.username)) { seen.add(r.username); allResults.push(r); }
     }
   }
-  return allResults;
+  return allResults.slice(0, limit);
 }
 
 // ===== البحث في Google عن صفحات Facebook =====
-export async function searchFacebookSERP(query: string, location?: string): Promise<Array<{
+export async function searchFacebookSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
   const loc = location || "";
@@ -644,18 +651,18 @@ export async function searchFacebookSERP(query: string, location?: string): Prom
       for (const r of parsed) {
         if (!seen.has(r.username)) { seen.add(r.username); allResults.push(r); }
       }
-      if (allResults.length >= 20) break;
+      if (allResults.length >= limit) break;
     } catch (err: any) {
       console.warn(`[Facebook SERP] query failed: ${q} - ${err.message}`);
     }
   }
 
   console.log(`[Facebook SERP] Total unique results: ${allResults.length}`);
-  return allResults;
+  return allResults.slice(0, limit);
 }
 
 // ===== البحث في Google عن حسابات Twitter/X =====
-export async function searchTwitterSERP(query: string, location?: string): Promise<Array<{
+export async function searchTwitterSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
   const loc = location || "";
@@ -687,14 +694,14 @@ export async function searchTwitterSERP(query: string, location?: string): Promi
       for (const r of [...parsedX, ...parsedT]) {
         if (!seen.has(r.username)) { seen.add(r.username); allResults.push(r); }
       }
-      if (allResults.length >= 20) break;
+      if (allResults.length >= limit) break;
     } catch (err: any) {
       console.warn(`[Twitter SERP] query failed: ${q} - ${err.message}`);
     }
   }
 
   console.log(`[Twitter SERP] Total unique results: ${allResults.length}`);
-  return allResults;
+  return allResults.slice(0, limit);
 }
 
 // ===== تحليل نتائج Google HTML =====
