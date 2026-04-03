@@ -48,7 +48,6 @@ const AuditLog = lazy(() => import("./pages/AuditLog"));
 const LabelsManager = lazy(() => import("./pages/LabelsManager"));
 const FollowUp = lazy(() => import("./pages/FollowUp"));
 const AIAgent = lazy(() => import("./pages/AIAgent"));
-const SerpQueue = lazy(() => import("./pages/SerpQueue"));
 const Seasons = lazy(() => import("./pages/Seasons"));
 
 function RouteFallback() {
@@ -103,7 +102,6 @@ function Router() {
               <Route path="/labels" component={LabelsManager} />
               <Route path="/follow-up" component={FollowUp} />
               <Route path="/ai-agent" component={AIAgent} />
-              <Route path="/serp-queue" component={SerpQueue} />
               <Route path="/seasons" component={Seasons} />
               <Route path="/compare" component={CompareLeads} />
               <Route path="/404" component={NotFound} />

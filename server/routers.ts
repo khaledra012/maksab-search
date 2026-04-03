@@ -51,7 +51,6 @@ import { scrapeWebsite, scrapeInstagram, scrapeLinkedIn, scrapeTwitter, scrapeTi
 import { fetchSocialPlatformData, extractSocialStats } from "./lib/brightDataSocialDatasets";
 import { brightDataAnalysisRouter } from "./routers/brightDataAnalysis";
 import { aiAgentRouter } from "./routers/aiAgent";
-import { serpQueueRouter } from "./routers/serpQueue";
 import { seasonsRouter } from "./routers/seasons";
 import { reportStyleRouter } from "./routers/reportStyle";
 import { leadIntelligenceRouter } from "./routers/leadIntelligence";
@@ -2606,7 +2605,6 @@ export const appRouter = router({
   deduplication: deduplicationRouter,
   sectorAnalysis: sectorAnalysisRouter,
   pdfReport: pdfReportRouter,
-  serpQueue: serpQueueRouter,
   seasons: seasonsRouter,
   reportStyle: reportStyleRouter,
   leadIntelligence: leadIntelligenceRouter,

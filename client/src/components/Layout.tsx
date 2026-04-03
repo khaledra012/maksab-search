@@ -1,4 +1,4 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+﻿import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import {
   BarChart3,
@@ -10,7 +10,6 @@ import {
   Shield,
   Zap,
   Globe,
-  DatabaseZap,
   Brain,
   Bot,
   Settings2,
@@ -21,25 +20,24 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import Tutorial from "./Tutorial";
 
-// ─────────────────────────────────────────────
-// تعريف الأقسام الأربعة للقائمة الجانبية
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// طھط¹ط±ظٹظپ ط§ظ„ط£ظ‚ط³ط§ظ… ط§ظ„ط£ط±ط¨ط¹ط© ظ„ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط¬ط§ظ†ط¨ظٹط©
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** القسم الرئيسي — متاح لجميع المستخدمين (مع فلترة الصلاحيات) */
+/** ط§ظ„ظ‚ط³ظ… ط§ظ„ط±ط¦ظٹط³ظٹ â€” ظ…طھط§ط­ ظ„ط¬ظ…ظٹط¹ ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† (ظ…ط¹ ظپظ„طھط±ط© ط§ظ„طµظ„ط§ط­ظٹط§طھ) */
 const MAIN_NAV = [
   { path: "/",              label: "لوحة التحكم",      icon: BarChart3,     permission: null },
   { path: "/leads",         label: "قائمة العملاء",    icon: Users,         permission: "leads.view" },
   { path: "/compare",       label: "مقارنة العملاء",   icon: BarChart3,     permission: "leads.view" },
   { path: "/search-hub",    label: "مركز البحث",       icon: Search,        permission: "search.use" },
-  { path: "/serp-queue",    label: "محرك البحث المتقدم", icon: DatabaseZap,   permission: "search.use" },
 ];
 
-/** قسم المتابعة — متاح لجميع المستخدمين */
+/** ظ‚ط³ظ… ط§ظ„ظ…طھط§ط¨ط¹ط© â€” ظ…طھط§ط­ ظ„ط¬ظ…ظٹط¹ ط§ظ„ظ…ط³طھط®ط¯ظ…ظٹظ† */
 const FOLLOWUP_NAV = [
   { path: "/ai-agent",       label: "وكيل الذكاء الاصطناعي", icon: Bot },
 ];
 
-/** قسم الإعدادات — للأدمن فقط */
+/** ظ‚ط³ظ… ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ â€” ظ„ظ„ط£ط¯ظ…ظ† ظپظ‚ط· */
 const SETTINGS_NAV = [
   { path: "/settings",          label: "الإعدادات",           icon: Settings2 },
   { path: "/seasons",           label: "المواسم التسويقية",  icon: CalendarDays },
@@ -48,9 +46,9 @@ const SETTINGS_NAV = [
   { path: "/audit-log",         label: "سجل التدقيق",      icon: ClipboardList },
 ];
 
-// ─────────────────────────────────────────────
-// مكوّن NavItem — لتفادي تكرار الكود
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ظ…ظƒظˆظ‘ظ† NavItem â€” ظ„طھظپط§ط¯ظٹ طھظƒط±ط§ط± ط§ظ„ظƒظˆط¯
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function NavItem({
   path,
   label,
@@ -99,9 +97,9 @@ function NavItem({
   );
 }
 
-// ─────────────────────────────────────────────
-// مكوّن SectionLabel — عنوان القسم
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ظ…ظƒظˆظ‘ظ† SectionLabel â€” ط¹ظ†ظˆط§ظ† ط§ظ„ظ‚ط³ظ…
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function SectionLabel({ label }: { label: string }) {
   return (
     <div className="px-3 pt-4 pb-1">
@@ -112,9 +110,9 @@ function SectionLabel({ label }: { label: string }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// المكوّن الرئيسي Layout
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ط§ظ„ظ…ظƒظˆظ‘ظ† ط§ظ„ط±ط¦ظٹط³ظٹ Layout
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, loading, isAuthenticated } = useAuth({
     redirectOnUnauthenticated: true,
@@ -126,21 +124,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const closeSidebar = () => setSidebarOpen(false);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // صلاحيات المستخدم
+  // طµظ„ط§ط­ظٹط§طھ ط§ظ„ظ…ط³طھط®ط¯ظ…
   const { data: myPerms } = trpc.invitations.myPermissions.useQuery(undefined, {
     enabled: isAuthenticated,
   });
   const userPermissionsList = myPerms?.permissions ?? [];
   const isAdmin = user?.role === "admin";
 
-  // فلترة القسم الرئيسي حسب الصلاحيات
+  // ظپظ„طھط±ط© ط§ظ„ظ‚ط³ظ… ط§ظ„ط±ط¦ظٹط³ظٹ ط­ط³ط¨ ط§ظ„طµظ„ط§ط­ظٹط§طھ
   const visibleMain = MAIN_NAV.filter((item) => {
     if (isAdmin) return true;
     if (!item.permission) return true;
     return userPermissionsList.includes(item.permission);
   });
 
-  // ─── Loading ───
+  // â”€â”€â”€ Loading â”€â”€â”€
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -152,13 +150,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // ─── Not authenticated ───
+  // â”€â”€â”€ Not authenticated â”€â”€â”€
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-          <p className="text-muted-foreground text-sm">جارٍ تحويلك إلى صفحة الدخول...</p>
+          <p className="text-muted-foreground text-sm">جاري تحويلك إلى صفحة الدخول...</p>
         </div>
       </div>
     );
@@ -172,7 +170,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isActive = (path: string) =>
     path === "/" ? location === "/" : location === path || location.startsWith(path + "/");
 
-  // ─── Layout ───
+  // â”€â”€â”€ Layout â”€â”€â”€
   return (
     <>
     <div className="min-h-screen flex bg-background" dir="rtl">
@@ -184,14 +182,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* ══════════════ Sidebar ══════════════ */}
+      {/* â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ Sidebar â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ */}
       <aside
         className={`fixed top-0 right-0 h-full z-50 flex flex-col border-l border-border transition-all duration-300 lg:static lg:translate-x-0 w-64 ${
           sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
         }`}
         style={{ background: "oklch(0.11 0.012 240)" }}
       >
-        {/* ── Logo ── */}
+        {/* â”€â”€ Logo â”€â”€ */}
         <div className="border-b border-border flex items-center justify-between flex-shrink-0 p-4">
           <div className="flex items-center gap-3">
             <img
@@ -208,10 +206,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* ── Navigation ── */}
+        {/* â”€â”€ Navigation â”€â”€ */}
         <nav className="flex-1 p-3 overflow-y-auto space-y-0.5">
 
-          {/* ── القسم الرئيسي ── */}
+          {/* â”€â”€ ط§ظ„ظ‚ط³ظ… ط§ظ„ط±ط¦ظٹط³ظٹ â”€â”€ */}
           {visibleMain.map((item) => (
             <NavItem
               key={item.path}
@@ -223,7 +221,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             />
           ))}
 
-          {/* ── قسم المتابعة ── */}
+          {/* â”€â”€ ظ‚ط³ظ… ط§ظ„ظ…طھط§ط¨ط¹ط© â”€â”€ */}
           <SectionLabel label="متابعة" />
           {FOLLOWUP_NAV.map((item) => (
             <NavItem
@@ -237,7 +235,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             />
           ))}
 
-          {/* ── قسم الإعدادات (أدمن فقط) ── */}
+          {/* â”€â”€ ظ‚ط³ظ… ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ (ط£ط¯ظ…ظ† ظپظ‚ط·) â”€â”€ */}
           {isAdmin && (
             <>
               <SectionLabel label="إعدادات" />
@@ -255,7 +253,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           )}
         </nav>
 
-        {/* ── User section ── */}
+        {/* â”€â”€ User section â”€â”€ */}
         <div className="p-3 border-t border-border flex-shrink-0">
           <div
             className="flex items-center gap-3 px-3 py-2 rounded-xl mb-2"
@@ -294,7 +292,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* ══════════════ Main content ══════════════ */}
+      {/* â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ Main content â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گ */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar */}
         <header
