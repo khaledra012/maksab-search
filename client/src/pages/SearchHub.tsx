@@ -167,6 +167,21 @@ function getConfidenceBadge(result: any): {
   };
 }
 
+type PresenceSuggestion = {
+  value: string;
+  confidence: number;
+  confidenceLevel: "high" | "medium" | "low";
+  source: string;
+  status: "confirmed" | "suggested";
+  sourceUrl?: string;
+  matchedBy: string[];
+};
+
+type PresenceSuggestionMap = Partial<Record<
+  "website" | "verifiedPhone" | "instagramUrl" | "twitterUrl" | "snapchatUrl" | "tiktokUrl" | "facebookUrl" | "linkedinUrl",
+  PresenceSuggestion | null
+>>;
+
 // ===== مكون بطاقة نتيجة =====
 function ResultCard({ result, onAdd, isDuplicate, platform }: {
   result: any; onAdd: (r: any) => void; isDuplicate?: boolean; platform: typeof PLATFORMS[number];
@@ -289,6 +304,8 @@ export default function SearchHub() {
     companyName: "", businessType: "", city: "", phone: "", email: "", website: "", notes: "",
     instagramUrl: "", tiktokUrl: "", snapchatUrl: "", twitterUrl: "", facebookUrl: "", linkedinUrl: "",
   });
+  const [addFormSuggestions, setAddFormSuggestions] = useState<PresenceSuggestionMap>({});
+  const [addFormSummary, setAddFormSummary] = useState<any>(null);
   const [addedNames, setAddedNames] = useState<Set<string>>(new Set());
   const parsedLaunchRef = useRef(false);
   const autoRunRequestRef = useRef<null | {
@@ -311,6 +328,7 @@ export default function SearchHub() {
   const suggestHashtagsMut = trpc.socialSearch.suggestSocialHashtags.useMutation();
   const brightDataConnectionQuery = trpc.brightDataSearch.checkConnection.useQuery();
   const createLead = trpc.leads.create.useMutation();
+  const discoverPresenceMutation = trpc.leadIntelligence.discoverDigitalPresence.useMutation();
   const enhanceQueryMut = trpc.searchBehavior.enhanceQuery.useMutation();
   const logSearchSessionMut = trpc.searchBehavior.logSearchSession.useMutation();
   const [suggestedHashtags, setSuggestedHashtags] = useState<string[]>([]);
@@ -541,6 +559,8 @@ export default function SearchHub() {
 
   const handleOpenAddDialog = (result: any, platform: PlatformId) => {
     setAddDialog({ open: true, result, platform });
+    setAddFormSuggestions({});
+    setAddFormSummary(null);
     const username = result.username || result.user_name || result.screen_name || "";
     // بناء روابط المنصات تلقائياً من نتيجة البحث
     const instagramUrl = platform === "instagram" ? (result.profile_url || (username ? `https://instagram.com/${username}` : "")) : "";
@@ -559,6 +579,63 @@ export default function SearchHub() {
       notes: result.bio || result.description || "",
       instagramUrl, tiktokUrl, snapchatUrl, twitterUrl, facebookUrl, linkedinUrl,
     });
+  };
+
+  const handleDiscoverAddFormPresence = async () => {
+    if (!addForm.companyName.trim()) {
+      toast.error("اكتب اسم النشاط أولًا قبل الاستكمال التلقائي");
+      return;
+    }
+
+    try {
+      const result = await discoverPresenceMutation.mutateAsync({
+        companyName: addForm.companyName,
+        businessType: addForm.businessType,
+        city: addForm.city,
+        website: addForm.website,
+        verifiedPhone: addForm.phone,
+        instagramUrl: addForm.instagramUrl,
+        twitterUrl: addForm.twitterUrl,
+        snapchatUrl: addForm.snapchatUrl,
+        tiktokUrl: addForm.tiktokUrl,
+        facebookUrl: addForm.facebookUrl,
+        linkedinUrl: addForm.linkedinUrl,
+      });
+
+      const suggestions = (result?.suggestions || {}) as PresenceSuggestionMap;
+      setAddFormSuggestions(suggestions);
+      setAddFormSummary(result?.summary || null);
+
+      let autoFilledCount = 0;
+      setAddForm(current => {
+        const next = { ...current };
+        for (const [field, suggestion] of Object.entries(suggestions)) {
+          if (!suggestion?.value) continue;
+
+          const formField =
+            field === "verifiedPhone"
+              ? "phone"
+              : field;
+
+          const currentValue = String((next as any)[formField] || "").trim();
+          if (!currentValue) {
+            (next as any)[formField] = suggestion.value;
+            autoFilledCount++;
+          }
+        }
+        return next;
+      });
+
+      const discoveredCount = Number(result?.summary?.discoveredCount || 0);
+      toast.success("تم استكمال البيانات المقترحة", {
+        description:
+          discoveredCount > 0
+            ? `تم العثور على ${discoveredCount} اقتراح، وتم تعبئة ${autoFilledCount} حقل فارغ تلقائيًا`
+            : "لم يتم العثور على اقتراحات كافية لهذه البيانات",
+      });
+    } catch (e: any) {
+      toast.error("فشل استكمال البيانات تلقائيًا", { description: e?.message });
+    }
   };
 
   const handleAddLead = async () => {
@@ -586,6 +663,8 @@ export default function SearchHub() {
       });
       setAddedNames(prev => { const next = new Set(prev); next.add(addForm.companyName); return next; });
       toast.success("تمت الإضافة كعميل محتمل", { description: addForm.companyName });
+      setAddFormSuggestions({});
+      setAddFormSummary(null);
       setAddDialog({ open: false, result: null, platform: "" });
     } catch (e: any) { toast.error("خطأ في الإضافة", { description: e.message }); }
   };
@@ -607,6 +686,50 @@ export default function SearchHub() {
   };
 
   // إحصائيات
+  const renderAddFormSuggestion = (field: keyof PresenceSuggestionMap, valueOverride?: string) => {
+    const suggestion = addFormSuggestions?.[field];
+    if (!suggestion?.value) return null;
+
+    const currentValue = String(
+      valueOverride ??
+      (field === "verifiedPhone" ? addForm.phone : (addForm as any)[field]) ??
+      ""
+    ).trim();
+    const isApplied = currentValue === suggestion.value;
+    const badgeColor =
+      suggestion.confidenceLevel === "high"
+        ? "oklch(0.65 0.18 145)"
+        : suggestion.confidenceLevel === "medium"
+          ? "oklch(0.72 0.16 85)"
+          : "oklch(0.68 0.11 235)";
+
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px]">
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 border"
+          style={{ color: badgeColor, borderColor: `${badgeColor}55`, background: `${badgeColor}12` }}
+        >
+          <Sparkles className="w-3 h-3" />
+          {suggestion.status === "confirmed" ? "موثوق" : "مقترح"}
+          <span dir="ltr">({suggestion.confidence}%)</span>
+        </span>
+        {!isApplied && (
+          <button
+            type="button"
+            onClick={() => setAddForm(f => ({
+              ...f,
+              [field === "verifiedPhone" ? "phone" : field]: suggestion.value,
+            }))}
+            className="text-[10px] underline underline-offset-2"
+            style={{ color: badgeColor }}
+          >
+            استخدام الاقتراح
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const totalResults = Object.values(results).reduce((s, r) => s + r.length, 0);
   const isAnyLoading = Object.values(loading).some(Boolean);
   const currentPlatform = PLATFORMS.find(p => p.id === activeTab)!;
@@ -972,7 +1095,11 @@ export default function SearchHub() {
       </div>
 
       {/* ===== نافذة إضافة عميل ===== */}
-      <Dialog open={addDialog.open} onOpenChange={open => !open && setAddDialog({ open: false, result: null, platform: "" })}>
+      <Dialog open={addDialog.open} onOpenChange={open => !open && (() => {
+        setAddFormSuggestions({});
+        setAddFormSummary(null);
+        setAddDialog({ open: false, result: null, platform: "" });
+      })()}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" dir="rtl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -986,6 +1113,33 @@ export default function SearchHub() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">استكمال البيانات تلقائيًا</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    يكتشف الموقع وباقي السوشيال ويملأ الحقول الفارغة فقط
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDiscoverAddFormPresence}
+                  disabled={discoverPresenceMutation.isPending || !addForm.companyName.trim()}
+                  className="h-8 gap-1.5 text-xs"
+                >
+                  {discoverPresenceMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  {discoverPresenceMutation.isPending ? "جاري الاستكمال..." : "استكمال تلقائي"}
+                </Button>
+              </div>
+              {addFormSummary?.discoveredCount > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  تم العثور على {addFormSummary.discoveredCount} اقتراح
+                  {addFormSummary.highConfidenceCount ? `، منها ${addFormSummary.highConfidenceCount} موثوق` : ""}
+                </p>
+              )}
+            </div>
             {/* البيانات الأساسية */}
             <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">البيانات الأساسية</p>
@@ -1007,6 +1161,7 @@ export default function SearchHub() {
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Phone className="w-3 h-3" />رقم الهاتف</Label>
                   <Input value={addForm.phone} onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))} className="h-9 text-sm font-mono" dir="ltr" placeholder="+966..." />
+                  {renderAddFormSuggestion("verifiedPhone", addForm.phone)}
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Mail className="w-3 h-3" />الإيميل</Label>
@@ -1016,6 +1171,7 @@ export default function SearchHub() {
               <div>
                 <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Globe className="w-3 h-3" />الموقع الإلكتروني</Label>
                 <Input value={addForm.website} onChange={e => setAddForm(f => ({ ...f, website: e.target.value }))} className="h-9 text-sm" dir="ltr" placeholder="https://..." />
+                {renderAddFormSuggestion("website")}
               </div>
             </div>
 
@@ -1026,36 +1182,42 @@ export default function SearchHub() {
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Instagram className="w-3 h-3 text-pink-400" />إنستجرام</Label>
                   <Input value={addForm.instagramUrl} onChange={e => setAddForm(f => ({ ...f, instagramUrl: e.target.value }))} className="h-8 text-xs" dir="ltr" placeholder="https://instagram.com/..." />
+                  {renderAddFormSuggestion("instagramUrl")}
                 </div>
               )}
               {(addForm.tiktokUrl || addDialog.platform === "tiktok") && (
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Video className="w-3 h-3 text-purple-400" />تيك توك</Label>
                   <Input value={addForm.tiktokUrl} onChange={e => setAddForm(f => ({ ...f, tiktokUrl: e.target.value }))} className="h-8 text-xs" dir="ltr" placeholder="https://tiktok.com/@..." />
+                  {renderAddFormSuggestion("tiktokUrl")}
                 </div>
               )}
               {(addForm.snapchatUrl || addDialog.platform === "snapchat") && (
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Camera className="w-3 h-3 text-yellow-400" />سناب شات</Label>
                   <Input value={addForm.snapchatUrl} onChange={e => setAddForm(f => ({ ...f, snapchatUrl: e.target.value }))} className="h-8 text-xs" dir="ltr" placeholder="https://snapchat.com/add/..." />
+                  {renderAddFormSuggestion("snapchatUrl")}
                 </div>
               )}
               {(addForm.twitterUrl || addDialog.platform === "twitter") && (
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Twitter className="w-3 h-3 text-sky-400" />تويتر / X</Label>
                   <Input value={addForm.twitterUrl} onChange={e => setAddForm(f => ({ ...f, twitterUrl: e.target.value }))} className="h-8 text-xs" dir="ltr" placeholder="https://twitter.com/..." />
+                  {renderAddFormSuggestion("twitterUrl")}
                 </div>
               )}
               {(addForm.facebookUrl || addDialog.platform === "facebook") && (
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Users className="w-3 h-3 text-blue-400" />فيسبوك</Label>
                   <Input value={addForm.facebookUrl} onChange={e => setAddForm(f => ({ ...f, facebookUrl: e.target.value }))} className="h-8 text-xs" dir="ltr" placeholder="https://facebook.com/..." />
+                  {renderAddFormSuggestion("facebookUrl")}
                 </div>
               )}
               {(addForm.linkedinUrl || addDialog.platform === "linkedin") && (
                 <div>
                   <Label className="text-xs text-muted-foreground mb-1 block flex items-center gap-1"><Linkedin className="w-3 h-3 text-blue-500" />لينكدإن</Label>
                   <Input value={addForm.linkedinUrl} onChange={e => setAddForm(f => ({ ...f, linkedinUrl: e.target.value }))} className="h-8 text-xs" dir="ltr" placeholder="https://linkedin.com/..." />
+                  {renderAddFormSuggestion("linkedinUrl")}
                 </div>
               )}
               {/* إضافة روابط منصات إضافية */}
@@ -1105,7 +1267,16 @@ export default function SearchHub() {
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setAddDialog({ open: false, result: null, platform: "" })}>إلغاء</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAddFormSuggestions({});
+                setAddFormSummary(null);
+                setAddDialog({ open: false, result: null, platform: "" });
+              }}
+            >
+              إلغاء
+            </Button>
             <Button onClick={handleAddLead} disabled={!addForm.companyName || createLead.isPending} className="gap-2">
               {createLead.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               إضافة كعميل

@@ -20,6 +20,21 @@ const FALLBACK_BUSINESS_TYPES = [
   "مزرعة أغنام", "سوق ماشية", "أضاحي", "مشاوي ولحوم", "مطعم", "صيدلية", "بقالة", "مقهى", "صالون", "أخرى"
 ];
 
+type PresenceSuggestion = {
+  value: string;
+  confidence: number;
+  confidenceLevel: "high" | "medium" | "low";
+  source: string;
+  status: "confirmed" | "suggested";
+  sourceUrl?: string;
+  matchedBy: string[];
+};
+
+type PresenceSuggestionMap = Partial<Record<
+  "website" | "verifiedPhone" | "instagramUrl" | "twitterUrl" | "snapchatUrl" | "tiktokUrl" | "facebookUrl" | "linkedinUrl",
+  PresenceSuggestion | null
+>>;
+
 export default function AddLead() {
   const [, navigate] = useLocation();
   const { data: zones } = trpc.zones.list.useQuery();
@@ -27,10 +42,13 @@ export default function AddLead() {
   const businessTypes = businessTypesData?.length ? businessTypesData.map(b => b.label) : FALLBACK_BUSINESS_TYPES;
   const createLead = trpc.leads.create.useMutation();
   const parseBioMutation = trpc.leadIntelligence.parseBio.useMutation();
+  const discoverPresenceMutation = trpc.leadIntelligence.discoverDigitalPresence.useMutation();
   const utils = trpc.useUtils();
   const [bioText, setBioText] = useState("");
   const [showBioPanel, setShowBioPanel] = useState(false);
   const [bioResult, setBioResult] = useState<any>(null);
+  const [presenceSuggestions, setPresenceSuggestions] = useState<PresenceSuggestionMap>({});
+  const [presenceSummary, setPresenceSummary] = useState<any>(null);
 
   const [selectedCountry, setSelectedCountry] = useState("السعودية");
   const availableCities = COUNTRIES_DATA.find(c => c.name === selectedCountry)?.cities ?? [];
@@ -52,6 +70,7 @@ export default function AddLead() {
     snapchatUrl: "",
     tiktokUrl: "",
     facebookUrl: "",
+    linkedinUrl: "",
     reviewCount: 0,
     socialSince: "",
     notes: "",
@@ -88,6 +107,58 @@ export default function AddLead() {
       toast.success(`تم استخراج ${filled} حقل تلقائياً`, { description: `نسبة الثقة: ${result.confidence}%` });
     } catch (err) {
       toast.error("فشل تحليل البايو");
+    }
+  };
+
+  const handleDiscoverPresence = async () => {
+    if (!form.companyName.trim()) {
+      toast.error("اكتب اسم النشاط أولًا قبل الاستكمال التلقائي");
+      return;
+    }
+
+    try {
+      const result = await discoverPresenceMutation.mutateAsync({
+        companyName: form.companyName,
+        businessType: form.businessType,
+        city: form.city,
+        website: form.website,
+        googleMapsUrl: form.googleMapsUrl,
+        verifiedPhone: form.verifiedPhone,
+        instagramUrl: form.instagramUrl,
+        twitterUrl: form.twitterUrl,
+        snapchatUrl: form.snapchatUrl,
+        tiktokUrl: form.tiktokUrl,
+        facebookUrl: form.facebookUrl,
+        linkedinUrl: form.linkedinUrl,
+      });
+
+      const suggestions = (result?.suggestions || {}) as PresenceSuggestionMap;
+      setPresenceSuggestions(suggestions);
+      setPresenceSummary(result?.summary || null);
+
+      let autoFilledCount = 0;
+      setForm(current => {
+        const next = { ...current };
+        for (const [field, suggestion] of Object.entries(suggestions)) {
+          if (!suggestion?.value) continue;
+          const currentValue = String((next as any)[field] || "").trim();
+          if (!currentValue) {
+            (next as any)[field] = suggestion.value;
+            autoFilledCount++;
+          }
+        }
+        return next;
+      });
+
+      const discoveredCount = Number(result?.summary?.discoveredCount || 0);
+      toast.success("تم استكمال البيانات المقترحة", {
+        description:
+          discoveredCount > 0
+            ? `تم العثور على ${discoveredCount} اقتراح، وتم تعبئة ${autoFilledCount} حقل فارغ تلقائيًا`
+            : "لم يتم العثور على اقتراحات كافية لهذه البيانات",
+      });
+    } catch (err) {
+      toast.error("فشل استكمال البيانات تلقائيًا");
     }
   };
 
@@ -232,6 +303,46 @@ export default function AddLead() {
     if (errors[field]) setErrors(e => ({ ...e, [field]: "" }));
   };
 
+  const renderPresenceHint = (field: keyof PresenceSuggestionMap) => {
+    const suggestion = presenceSuggestions?.[field];
+    if (!suggestion?.value) return null;
+
+    const currentValue = String((form as any)[field] || "").trim();
+    const isApplied = currentValue === suggestion.value;
+    const badgeColor =
+      suggestion.confidenceLevel === "high"
+        ? "oklch(0.65 0.18 145)"
+        : suggestion.confidenceLevel === "medium"
+          ? "oklch(0.72 0.16 85)"
+          : "oklch(0.68 0.11 235)";
+
+    return (
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px]">
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 border"
+          style={{ color: badgeColor, borderColor: `${badgeColor}55`, background: `${badgeColor}12` }}
+        >
+          <Sparkles className="w-3 h-3" />
+          {suggestion.status === "confirmed" ? "موثوق" : "مقترح"}
+          <span dir="ltr">({suggestion.confidence}%)</span>
+        </span>
+        <span className="text-muted-foreground">
+          {isApplied ? "تم تعبئته تلقائيًا" : "تم العثور على اقتراح لهذا الحقل"}
+        </span>
+        {!isApplied && (
+          <button
+            type="button"
+            onClick={() => set(field, suggestion.value)}
+            className="text-[10px] underline underline-offset-2"
+            style={{ color: badgeColor }}
+          >
+            استخدام الاقتراح
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const whatsappOptions = [
     { value: "yes", label: "لديه واتساب", icon: CheckCircle2, color: "oklch(0.65 0.18 145)", bg: "oklch(0.65 0.18 145 / 0.15)", border: "oklch(0.65 0.18 145 / 0.5)" },
     { value: "no", label: "ليس لديه", icon: XCircle, color: "oklch(0.65 0.18 25)", bg: "oklch(0.65 0.18 25 / 0.15)", border: "oklch(0.65 0.18 25 / 0.5)" },
@@ -368,6 +479,7 @@ export default function AddLead() {
                 className={`w-full px-4 py-2.5 rounded-xl text-sm border bg-background text-foreground focus:outline-none focus:border-primary transition-colors ${errors.verifiedPhone ? "border-red-500" : "border-border"}`}
                 placeholder="+966501234567" dir="ltr" />
               {errors.verifiedPhone && <p className="text-xs mt-1" style={{ color: "var(--brand-red)" }}>{errors.verifiedPhone}</p>}
+              {renderPresenceHint("verifiedPhone")}
             </div>
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">عدد تقييمات Google</label>
@@ -416,10 +528,38 @@ export default function AddLead() {
 
         {/* Digital presence */}
         <div className="rounded-2xl p-5 border border-border space-y-4" style={{ background: "oklch(0.12 0.015 240)" }}>
-          <h3 className="font-semibold text-foreground flex items-center gap-2">
-            <Globe className="w-4 h-4" style={{ color: "var(--brand-cyan)" }} />
-            الحضور الرقمي
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-foreground flex items-center gap-2">
+                <Globe className="w-4 h-4" style={{ color: "var(--brand-cyan)" }} />
+                الحضور الرقمي
+              </h3>
+              {presenceSummary?.discoveredCount > 0 && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  تم العثور على {presenceSummary.discoveredCount} اقتراح
+                  {presenceSummary.highConfidenceCount ? `، منها ${presenceSummary.highConfidenceCount} موثوق` : ""}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleDiscoverPresence}
+              disabled={discoverPresenceMutation.isPending}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-all disabled:opacity-50"
+              style={{
+                color: "oklch(0.72 0.16 200)",
+                borderColor: "oklch(0.65 0.16 200 / 0.35)",
+                background: "oklch(0.65 0.16 200 / 0.08)",
+              }}
+            >
+              {discoverPresenceMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              {discoverPresenceMutation.isPending ? "جاري الاستكمال..." : "استكمال البيانات تلقائيًا"}
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             {/* حقل Google Maps مع استدعاء تلقائي */}
             <div className="col-span-2">
@@ -458,6 +598,8 @@ export default function AddLead() {
               { field: "twitterUrl", label: "تويتر / X", placeholder: "https://twitter.com/...", icon: Twitter },
               { field: "snapchatUrl", label: "سناب شات", placeholder: "https://snapchat.com/...", icon: Globe },
               { field: "tiktokUrl", label: "تيك توك", placeholder: "https://tiktok.com/...", icon: Globe },
+              { field: "facebookUrl", label: "فيسبوك", placeholder: "https://facebook.com/...", icon: Globe },
+              { field: "linkedinUrl", label: "لينكدإن", placeholder: "https://linkedin.com/company/...", icon: Globe },
             ].map(({ field, label, placeholder, icon: Icon }) => (
               <div key={field}>
                 <label className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1.5">
@@ -467,6 +609,7 @@ export default function AddLead() {
                 <input value={(form as any)[field]} onChange={e => set(field, e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl text-sm border border-border bg-background text-foreground focus:outline-none focus:border-primary"
                   placeholder={placeholder} dir="ltr" />
+                {renderPresenceHint(field as keyof PresenceSuggestionMap)}
               </div>
             ))}
           </div>

@@ -491,6 +491,10 @@ export async function deepSearchWebsite(url: string, keyword: string): Promise<{
       if (snapchatMatch) socialLinks.snapchat = `https://snapchat.com/add/${snapchatMatch[1]}`;
       const tiktokMatch = html.match(/tiktok\.com\/@([a-zA-Z0-9._]+)/);
       if (tiktokMatch) socialLinks.tiktok = `https://tiktok.com/@${tiktokMatch[1]}`;
+      const facebookMatch = html.match(/facebook\.com\/([a-zA-Z0-9._-]+)/);
+      if (facebookMatch) socialLinks.facebook = `https://facebook.com/${facebookMatch[1]}`;
+      const linkedinCompanyMatch = html.match(/linkedin\.com\/company\/([a-zA-Z0-9._-]+)/);
+      if (linkedinCompanyMatch) socialLinks.linkedin = `https://www.linkedin.com/company/${linkedinCompanyMatch[1]}`;
 
       const metaDescMatch = html.match(/<meta[^>]*name="description"[^>]*content="([^"]+)"/i);
       const description = metaDescMatch?.[1] || "";
@@ -528,6 +532,10 @@ export async function deepSearchWebsite(url: string, keyword: string): Promise<{
       if (snapchatMatch) socialLinks.snapchat = `https://snapchat.com/add/${snapchatMatch[1]}`;
       const tiktokMatch = html.match(/tiktok\.com\/@([a-zA-Z0-9._]+)/);
       if (tiktokMatch) socialLinks.tiktok = `https://tiktok.com/@${tiktokMatch[1]}`;
+      const facebookMatch = html.match(/facebook\.com\/([a-zA-Z0-9._-]+)/);
+      if (facebookMatch) socialLinks.facebook = `https://facebook.com/${facebookMatch[1]}`;
+      const linkedinCompanyMatch = html.match(/linkedin\.com\/company\/([a-zA-Z0-9._-]+)/);
+      if (linkedinCompanyMatch) socialLinks.linkedin = `https://www.linkedin.com/company/${linkedinCompanyMatch[1]}`;
 
       const metaDescMatch = html.match(/<meta[^>]*name="description"[^>]*content="([^"]+)"/i);
       const description = metaDescMatch?.[1] || "";

@@ -219,6 +219,240 @@ function rawResultToCandidate(
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
+type PresenceSuggestion = {
+  value: string;
+  confidence: number;
+  confidenceLevel: "high" | "medium" | "low";
+  source: string;
+  status: "confirmed" | "suggested";
+  sourceUrl?: string;
+  matchedBy: string[];
+};
+
+type PresenceSuggestionMap = {
+  website: PresenceSuggestion | null;
+  verifiedPhone: PresenceSuggestion | null;
+  instagramUrl: PresenceSuggestion | null;
+  twitterUrl: PresenceSuggestion | null;
+  snapchatUrl: PresenceSuggestion | null;
+  tiktokUrl: PresenceSuggestion | null;
+  facebookUrl: PresenceSuggestion | null;
+  linkedinUrl: PresenceSuggestion | null;
+};
+
+const PLATFORM_TO_FIELD: Record<string, keyof PresenceSuggestionMap> = {
+  instagram: "instagramUrl",
+  twitter: "twitterUrl",
+  snapchat: "snapchatUrl",
+  tiktok: "tiktokUrl",
+  facebook: "facebookUrl",
+  linkedin: "linkedinUrl",
+};
+
+function emptyPresenceSuggestions(): PresenceSuggestionMap {
+  return {
+    website: null,
+    verifiedPhone: null,
+    instagramUrl: null,
+    twitterUrl: null,
+    snapchatUrl: null,
+    tiktokUrl: null,
+    facebookUrl: null,
+    linkedinUrl: null,
+  };
+}
+
+function clampConfidence(value: number): number {
+  return Math.max(1, Math.min(99, Math.round(value || 0)));
+}
+
+function toPresenceConfidenceLevel(value: number): "high" | "medium" | "low" {
+  if (value >= 80) return "high";
+  if (value >= 60) return "medium";
+  return "low";
+}
+
+function isLikelyOfficialWebsite(url?: string | null): boolean {
+  const value = String(url || "").trim();
+  if (!value) return false;
+  const lowered = value.toLowerCase();
+  return ![
+    "instagram.com",
+    "tiktok.com",
+    "twitter.com",
+    "x.com",
+    "snapchat.com",
+    "facebook.com",
+    "linkedin.com",
+    "maps.google",
+    "google.com",
+    "youtube.com",
+    "linktr.ee",
+    "bio.site",
+  ].some(host => lowered.includes(host));
+}
+
+function uniqueTextValues(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(values.map(value => String(value || "").trim()).filter(Boolean))
+  );
+}
+
+function buildPresenceSearchQuery(input: {
+  companyName: string;
+  businessType?: string;
+}) {
+  return [input.companyName, input.businessType]
+    .map(value => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildTextMatchTokens(...values: Array<string | null | undefined>): string[] {
+  return uniqueTextValues(values)
+    .flatMap(value => normalizeName(value).split(/\s+/))
+    .filter(token => token.length >= 3);
+}
+
+function countTokenHits(text: string, tokens: string[]): number {
+  const normalized = normalizeName(text || "");
+  if (!normalized || tokens.length === 0) return 0;
+  return tokens.filter(token => normalized.includes(token)).length;
+}
+
+function buildPresenceSuggestion(
+  value: string,
+  confidence: number,
+  source: string,
+  matchedBy: string[],
+  sourceUrl?: string
+): PresenceSuggestion {
+  const normalizedConfidence = clampConfidence(confidence);
+  const confidenceLevel = toPresenceConfidenceLevel(normalizedConfidence);
+  return {
+    value: String(value || "").trim(),
+    confidence: normalizedConfidence,
+    confidenceLevel,
+    source,
+    status: confidenceLevel === "high" ? "confirmed" : "suggested",
+    sourceUrl: sourceUrl ? String(sourceUrl).trim() : undefined,
+    matchedBy: uniqueTextValues(matchedBy),
+  };
+}
+
+function chooseBestGoogleWebsiteResult(
+  companyName: string,
+  businessType: string,
+  city: string,
+  results: Array<{
+    name?: string;
+    url?: string;
+    displayUrl?: string;
+    description?: string;
+    relevanceScore?: number;
+    isLeadCandidate?: boolean;
+    availableWebsites?: string[];
+  }>
+) {
+  const tokens = buildTextMatchTokens(companyName, businessType, city);
+  const ranked = results
+    .map(result => {
+      const candidateWebsite = isLikelyOfficialWebsite(result.url)
+        ? String(result.url || "").trim()
+        : "";
+
+      if (!candidateWebsite) {
+        return null;
+      }
+
+      const text = [
+        result.name,
+        result.description,
+        result.displayUrl,
+        candidateWebsite,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const tokenHits = countTokenHits(text, tokens);
+      const baseScore = Number(result.relevanceScore || 0) * 8;
+      const leadBonus = result.isLeadCandidate ? 10 : 0;
+
+      return {
+        result,
+        candidateWebsite,
+        score: baseScore + tokenHits * 6 + leadBonus,
+        matchedBy: [
+          tokenHits > 0 ? "name_match" : "",
+          result.isLeadCandidate ? "business_listing" : "",
+        ].filter(Boolean),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b?.score || 0) - (a?.score || 0));
+
+  return ranked[0] || null;
+}
+
+function rankPresenceCandidate(input: {
+  candidate: any;
+  companyName: string;
+  businessType?: string;
+  city?: string;
+  officialWebsite?: string;
+}) {
+  const candidate = input.candidate || {};
+  if (candidate.deadLink || candidate.profileExists === false || candidate.hardReject) {
+    return { score: -1000, matchedBy: ["rejected"] };
+  }
+
+  const candidateText = [
+    candidate.name,
+    candidate.displayName,
+    candidate.username,
+    candidate.bio,
+    candidate.description,
+    candidate.website,
+    candidate.url,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const tokens = buildTextMatchTokens(input.companyName, input.businessType, input.city);
+  const tokenHits = countTokenHits(candidateText, tokens);
+  const normalizedCompany = normalizeName(input.companyName || "");
+  const normalizedCandidateName = normalizeName(
+    String(candidate.name || candidate.displayName || candidate.username || "")
+  );
+
+  let score = Number(candidate.confidenceScore || 0);
+  score += Number(candidate.businessScore || 0) * 4;
+  score += tokenHits * 6;
+  score += candidate.strictPass ? 12 : 0;
+  score += String(candidate.verificationLevel || "").includes("verified") ? 10 : 0;
+  score += candidate.discoveryMethod === "direct_profile" ? 8 : 0;
+  score += candidate.discoveryMethod === "dataset" ? 6 : 0;
+
+  if (normalizedCompany && normalizedCandidateName && normalizedCandidateName.includes(normalizedCompany)) {
+    score += 18;
+  }
+
+  const officialHost = extractDomain(String(input.officialWebsite || ""));
+  const candidateHost = extractDomain(String(candidate.website || candidate.url || ""));
+  if (officialHost && candidateHost && officialHost === candidateHost) {
+    score += 14;
+  }
+
+  return {
+    score,
+    matchedBy: [
+      tokenHits > 0 ? "text_match" : "",
+      candidate.strictPass ? "strict_business" : "",
+      String(candidate.verificationLevel || "").includes("verified") ? "verified_profile" : "",
+      officialHost && candidateHost && officialHost === candidateHost ? "website_match" : "",
+    ].filter(Boolean),
+  };
+}
+
 const leadIntelligenceRouter = router({
 
   /**
@@ -1186,6 +1420,241 @@ const leadIntelligenceRouter = router({
     }),
 
   // ─── parseBio: تحليل البايو بـ AI واستخراج بيانات النشاط ───────────────────────
+  discoverDigitalPresence: protectedProcedure
+    .input(
+      z.object({
+        companyName: z.string().min(2),
+        businessType: z.string().optional(),
+        city: z.string().optional(),
+        website: z.string().optional(),
+        googleMapsUrl: z.string().optional(),
+        verifiedPhone: z.string().optional(),
+        instagramUrl: z.string().optional(),
+        twitterUrl: z.string().optional(),
+        snapchatUrl: z.string().optional(),
+        tiktokUrl: z.string().optional(),
+        facebookUrl: z.string().optional(),
+        linkedinUrl: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { searchGoogleWeb, deepSearchWebsite } = await import("./googleSearch");
+      const { searchVerifiedPlatformResults } = await import("./brightDataSearch");
+
+      const suggestions = emptyPresenceSuggestions();
+      const searchQuery = buildPresenceSearchQuery(input) || input.companyName;
+      const city = String(input.city || "").trim();
+
+      const existingValues: Record<string, string> = {
+        website: String(input.website || "").trim(),
+        verifiedPhone: String(input.verifiedPhone || "").trim(),
+        instagramUrl: String(input.instagramUrl || "").trim(),
+        twitterUrl: String(input.twitterUrl || "").trim(),
+        snapchatUrl: String(input.snapchatUrl || "").trim(),
+        tiktokUrl: String(input.tiktokUrl || "").trim(),
+        facebookUrl: String(input.facebookUrl || "").trim(),
+        linkedinUrl: String(input.linkedinUrl || "").trim(),
+      };
+
+      let effectiveWebsite = existingValues.website;
+      let googleResults: any[] = [];
+      let googleWebsitePick:
+        | {
+            result: any;
+            candidateWebsite: string;
+            score: number;
+            matchedBy: string[];
+          }
+        | null = null;
+
+      if (!effectiveWebsite) {
+        try {
+          const googleResponse = await searchGoogleWeb(searchQuery, city, "businesses", 1);
+          googleResults = googleResponse.results || [];
+          googleWebsitePick = chooseBestGoogleWebsiteResult(
+            input.companyName,
+            input.businessType || "",
+            city,
+            googleResults
+          );
+
+          if (googleWebsitePick?.candidateWebsite) {
+            effectiveWebsite = googleWebsitePick.candidateWebsite;
+            suggestions.website = buildPresenceSuggestion(
+              googleWebsitePick.candidateWebsite,
+              82 + Math.min(12, Math.round(googleWebsitePick.score / 10)),
+              "google_search",
+              googleWebsitePick.matchedBy,
+              googleWebsitePick.result?.url || googleWebsitePick.candidateWebsite
+            );
+          }
+        } catch (error) {
+          console.warn("[leadIntelligence.discoverDigitalPresence] Google discovery failed", error);
+        }
+      }
+
+      if (effectiveWebsite && isLikelyOfficialWebsite(effectiveWebsite)) {
+        try {
+          const websiteSignals = await deepSearchWebsite(effectiveWebsite, input.companyName);
+
+          if (!existingValues.verifiedPhone && !suggestions.verifiedPhone && websiteSignals.phones[0]) {
+            suggestions.verifiedPhone = buildPresenceSuggestion(
+              websiteSignals.phones[0],
+              91,
+              "official_website",
+              ["website_phone"],
+              effectiveWebsite
+            );
+          }
+
+          for (const [platform, rawUrl] of Object.entries(websiteSignals.socialLinks || {})) {
+            const field = PLATFORM_TO_FIELD[platform];
+            if (!field || existingValues[field]) continue;
+            if (!rawUrl || suggestions[field]) continue;
+
+            suggestions[field] = buildPresenceSuggestion(
+              rawUrl,
+              94,
+              "official_website",
+              ["website_social_link"],
+              effectiveWebsite
+            );
+          }
+        } catch (error) {
+          console.warn("[leadIntelligence.discoverDigitalPresence] Website enrichment failed", error);
+        }
+      }
+
+      const platforms = Object.keys(PLATFORM_TO_FIELD) as Array<keyof typeof PLATFORM_TO_FIELD>;
+      const missingPlatforms = platforms.filter(platform => {
+        const field = PLATFORM_TO_FIELD[platform];
+        return !existingValues[field] && !suggestions[field];
+      });
+
+      const platformResults = await Promise.allSettled(
+        missingPlatforms.map(async platform => {
+          const results = await searchVerifiedPlatformResults(
+            platform as any,
+            searchQuery,
+            city,
+            6
+          );
+
+          const ranked = (results || [])
+            .map(candidate => {
+              const ranking = rankPresenceCandidate({
+                candidate,
+                companyName: input.companyName,
+                businessType: input.businessType,
+                city,
+                officialWebsite: effectiveWebsite,
+              });
+
+              return {
+                candidate,
+                score: ranking.score,
+                matchedBy: ranking.matchedBy,
+              };
+            })
+            .filter(entry => entry.score > 0)
+            .sort((a, b) => b.score - a.score);
+
+          const best = ranked[0];
+          if (!best) {
+            return { platform, suggestion: null };
+          }
+
+          const field = PLATFORM_TO_FIELD[platform];
+          const profileUrl =
+            String(
+              best.candidate?.profileUrl ||
+              best.candidate?.profile_url ||
+              best.candidate?.url ||
+              ""
+            ).trim();
+
+          if (!profileUrl) {
+            return { platform, suggestion: null };
+          }
+
+          const confidenceSeed = Number(best.candidate?.confidenceScore || 0) || 55;
+          const confidence = clampConfidence(confidenceSeed + Math.min(20, Math.round(best.score / 12)));
+
+          return {
+            platform,
+            field,
+            candidate: best.candidate,
+            suggestion: buildPresenceSuggestion(
+              profileUrl,
+              confidence,
+              `${platform}_${best.candidate?.verificationLevel || best.candidate?.discoveryMethod || "search"}`,
+              best.matchedBy,
+              best.candidate?.sourceUrl || profileUrl
+            ),
+          };
+        })
+      );
+
+      for (const result of platformResults) {
+        if (result.status !== "fulfilled" || !result.value?.suggestion) continue;
+        const { field, suggestion, candidate } = result.value;
+        if (!field || !suggestion || existingValues[field] || suggestions[field]) continue;
+
+        suggestions[field] = suggestion;
+
+        if (
+          !suggestions.website &&
+          !existingValues.website &&
+          isLikelyOfficialWebsite(candidate?.website)
+        ) {
+          suggestions.website = buildPresenceSuggestion(
+            String(candidate.website),
+            Math.max(70, suggestion.confidence - 8),
+            `${result.value.platform}_profile`,
+            ["profile_website"],
+            String(candidate.website)
+          );
+          effectiveWebsite = String(candidate.website);
+        }
+      }
+
+      if (!suggestions.website && googleResults.length > 0) {
+        const firstWebsite = uniqueTextValues(
+          googleResults.flatMap(result => [
+            result.url,
+            ...(result.availableWebsites || []),
+          ])
+        ).find(isLikelyOfficialWebsite);
+
+        if (firstWebsite && !existingValues.website) {
+          suggestions.website = buildPresenceSuggestion(
+            firstWebsite,
+            68,
+            "google_search_fallback",
+            ["fallback_website"],
+            firstWebsite
+          );
+        }
+      }
+
+      const discoveredEntries = Object.entries(suggestions).filter(([, value]) => !!value);
+      const highConfidenceEntries = discoveredEntries.filter(
+        ([, value]) => value?.confidenceLevel === "high"
+      );
+
+      return {
+        suggestions,
+        summary: {
+          query: searchQuery,
+          city,
+          discoveredCount: discoveredEntries.length,
+          highConfidenceCount: highConfidenceEntries.length,
+          platformsSearched: missingPlatforms,
+          websiteUsedForEnrichment: effectiveWebsite || "",
+        },
+      };
+    }),
+
   parseBio: protectedProcedure
     .input(z.object({
       bio: z.string().min(5).max(3000),
