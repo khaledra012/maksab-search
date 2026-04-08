@@ -15,6 +15,7 @@ import { invokeLLM } from "../_core/llm";
 import { TRPCError } from "@trpc/server";
 import puppeteer from "puppeteer-core";
 import { buildGoogleSearchUrl } from "../lib/googleUrlBuilder";
+import { serpRequest, parseGoogleResultsGeneric } from "./serpSearch";
 
 // ===== Bright Data Browser API =====
 const BRIGHT_DATA_WS_ENDPOINT = process.env.BRIGHT_DATA_WS_ENDPOINT || "";
@@ -246,7 +247,6 @@ async function runGoogleSerpFallback(
   items: Array<{ title: string; link: string; snippet: string; displayLink: string }>;
   rawHtmlText: string;
 }> {
-  const { serpRequest, parseGoogleResultsGeneric } = await import("./serpSearch.js");
   const googleUrl = buildGoogleSearchUrl({ query, hl: "ar", gl: "sa", num: 10, page });
   const serpHtml = await serpRequest(googleUrl);
   const serpResults = parseGoogleResultsGeneric(serpHtml);

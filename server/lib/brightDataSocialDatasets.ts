@@ -133,6 +133,8 @@ export interface SocialDatasetResult<T> {
   snapshotId?: string;
   error?: string;
   platform: string;
+  profileExists?: boolean;
+  liveChecked?: boolean;
 }
 
 // ===== Helper: sleep =====
@@ -294,6 +296,40 @@ function normalizeFacebookUrl(input: string): string {
   return `https://www.facebook.com/${clean}`;
 }
 
+function hasSignals(html: string, signals: string[]): boolean {
+  const lower = String(html || "").toLowerCase();
+  return signals.some((signal) => signal && lower.includes(signal.toLowerCase()));
+}
+
+async function liveCheckProfilePage(
+  profilePageUrl: string,
+  unavailableSignals: string[],
+  evidenceSignals: string[],
+): Promise<{ liveChecked: boolean; profileExists?: boolean; html?: string }> {
+  try {
+    const { fetchWithScrapingBrowser, fetchViaProxy } = await import("./brightDataScraper");
+    let html = "";
+    let liveChecked = false;
+
+    try {
+      html = await fetchWithScrapingBrowser(profilePageUrl);
+      liveChecked = true;
+    } catch {
+      try {
+        html = await fetchViaProxy(profilePageUrl, 20000);
+        liveChecked = true;
+      } catch {
+        return { liveChecked: false, profileExists: undefined };
+      }
+    }
+
+    const profileExists = !(hasSignals(html, unavailableSignals) && !hasSignals(html, evidenceSignals));
+    return { liveChecked, profileExists, html };
+  } catch {
+    return { liveChecked: false, profileExists: undefined };
+  }
+}
+
 // ===== Public API: TikTok Profile =====
 export async function fetchTikTokProfile(
   profileUrl: string
@@ -301,6 +337,40 @@ export async function fetchTikTokProfile(
   const platform = "tiktok";
   try {
     const cleanUrl = normalizeTikTokUrl(profileUrl);
+    const handleMatch = cleanUrl.match(/tiktok\.com\/@([^\/\?]+)/i);
+    const handle = handleMatch?.[1]?.toLowerCase() || "";
+    const liveCheck = await liveCheckProfilePage(
+      cleanUrl,
+      [
+        "couldn't find this account",
+        "couldn't find this user",
+        "user not found",
+        "account unavailable",
+        "this account is private",
+        "page not available",
+        "profile not found",
+        "not found",
+      ],
+      [
+        `tiktok.com/@${handle}`,
+        `"uniqueid":"${handle}"`,
+        "\"followercount\":",
+        "\"followingcount\":",
+        "followers",
+        "following",
+        "og:title",
+      ]
+    );
+    if (liveCheck.liveChecked && liveCheck.profileExists === false) {
+      return {
+        success: false,
+        error: "TikTok profile unavailable",
+        platform,
+        profileExists: false,
+        liveChecked: true,
+      };
+    }
+
     console.log(`[BD TikTok] Fetching profile: ${cleanUrl}`);
 
     const snapshotId = await triggerDatasetCollection(
@@ -310,7 +380,14 @@ export async function fetchTikTokProfile(
 
     const data = await pollSnapshot<TikTokProfile>(snapshotId, 120000, 5000);
 
-    return { success: true, data, snapshotId, platform };
+    return {
+      success: true,
+      data,
+      snapshotId,
+      platform,
+      profileExists: liveCheck.liveChecked ? true : undefined,
+      liveChecked: liveCheck.liveChecked,
+    };
   } catch (err: any) {
     console.error(`[BD TikTok] Error:`, err.message);
     return { success: false, error: err.message, platform };
@@ -349,38 +426,90 @@ export async function fetchSnapchatPosts(
   limit = 10
 ): Promise<SocialDatasetResult<SnapchatPost>> {
   const platform = "snapchat";
+  const hasUnavailableSignals = (html: string) => {
+    const lower = html.toLowerCase();
+    return [
+      "page not found",
+      "profile not found",
+      "account unavailable",
+      "this account is unavailable",
+      "couldn't find",
+      "could not be found",
+      "user not found",
+      "الحساب غير متوفر",
+      "الحساب غير متاح",
+      "الصفحة غير موجودة",
+      "غير متوفر",
+      "غير موجود",
+      "لم نتمكن من العثور",
+    ].some((signal) => lower.includes(signal));
+  };
+
+  const hasProfileEvidence = (html: string, handle: string) => {
+    const lower = html.toLowerCase();
+    const normalizedHandle = handle.toLowerCase();
+    return (
+      lower.includes(`snapchat.com/add/${normalizedHandle}`) ||
+      lower.includes(`@${normalizedHandle}`) ||
+      lower.includes(`"${normalizedHandle}"`) ||
+      lower.includes("og:title") ||
+      lower.includes("og:description") ||
+      lower.includes("\"story\"") ||
+      lower.includes("subscriber") ||
+      lower.includes("follower")
+    );
+  };
+
   try {
     const cleanUrl = normalizeSnapchatUrl(profileUrl);
     const handle = cleanUrl.replace(/.*snapchat\.com\/add\//, "").replace(/\/$/, "");
     console.log(`[BD Snapchat] Fetching via Scraping Browser for handle: ${handle}`);
 
     // محاولة 1: Scraping Browser لجلب صفحة الملف الشخصي مباشرة
-    const { fetchWithScrapingBrowser } = await import("./brightDataScraper");
+    const { fetchWithScrapingBrowser, fetchViaProxy } = await import("./brightDataScraper");
     const profilePageUrl = `https://www.snapchat.com/add/${handle}`;
     let html = "";
+    let liveChecked = false;
     try {
       html = await fetchWithScrapingBrowser(profilePageUrl);
+      liveChecked = true;
     } catch (sbErr) {
       console.warn(`[BD Snapchat] Scraping Browser failed, trying proxy:`, sbErr);
-      // محاولة 2: SERP API كـ fallback
-      const apiToken = ENV.brightDataApiToken;
-      const serpZone = ENV.brightDataSerpZone || "serp_api1";
-      if (apiToken) {
-        const query = `site:snapchat.com/add/${handle} snapchat`;
-        const targetUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=5&hl=ar&gl=sa`;
-        const res = await fetch("https://api.brightdata.com/request", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiToken}` },
-          body: JSON.stringify({ zone: serpZone, url: targetUrl, format: "raw" }),
-          signal: AbortSignal.timeout(30000),
-        });
-        if (res.ok) html = await res.text();
+      try {
+        html = await fetchViaProxy(profilePageUrl, 20000);
+        liveChecked = true;
+      } catch (proxyErr) {
+        console.warn(`[BD Snapchat] Proxy failed, trying SERP fallback:`, proxyErr);
+        // محاولة 3: SERP API كـ fallback
+        const apiToken = ENV.brightDataApiToken;
+        const serpZone = ENV.brightDataSerpZone || "serp_api1";
+        if (apiToken) {
+          const query = `site:snapchat.com/add/${handle} snapchat`;
+          const targetUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=5&hl=ar&gl=sa`;
+          const res = await fetch("https://api.brightdata.com/request", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiToken}` },
+            body: JSON.stringify({ zone: serpZone, url: targetUrl, format: "raw" }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (res.ok) html = await res.text();
+        }
       }
     }
 
     const posts: SnapchatPost[] = [];
 
     if (html) {
+      if (liveChecked && hasUnavailableSignals(html) && !hasProfileEvidence(html, handle)) {
+        return {
+          success: false,
+          error: "Snapchat profile unavailable",
+          platform,
+          profileExists: false,
+          liveChecked: true,
+        };
+      }
+
       // استخراج بيانات الملف الشخصي من HTML
       const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
                       html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i)?.[1] || "";
@@ -418,10 +547,16 @@ export async function fetchSnapchatPosts(
       }
     }
 
-    return { success: posts.length > 0, data: posts, platform };
+    return {
+      success: posts.length > 0,
+      data: posts,
+      platform,
+      profileExists: liveChecked ? posts.length > 0 : undefined,
+      liveChecked,
+    };
   } catch (err: any) {
     console.error(`[BD Snapchat] Error:`, err.message);
-    return { success: false, error: err.message, platform };
+    return { success: false, error: err.message, platform, liveChecked: false };
   }
 }
 
@@ -433,6 +568,44 @@ export async function fetchTwitterPosts(
   const platform = "twitter";
   try {
     const cleanUrl = normalizeTwitterUrl(profileUrl);
+    const handle = cleanUrl
+      .replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//i, "")
+      .replace(/\/status\/?$/i, "")
+      .replace(/\/.*$/i, "")
+      .trim()
+      .toLowerCase();
+    const liveCheckUrl = handle ? `https://x.com/${handle}` : cleanUrl.replace(/\/status\/?$/i, "");
+    const liveCheck = await liveCheckProfilePage(
+      liveCheckUrl,
+      [
+        "this account doesn’t exist",
+        "this account doesn't exist",
+        "account suspended",
+        "page doesn’t exist",
+        "page doesn't exist",
+        "user not found",
+        "something went wrong",
+        "not found",
+      ],
+      [
+        `x.com/${handle}`,
+        `"screen_name":"${handle}"`,
+        "followers",
+        "following",
+        "og:title",
+        "profile_image_url",
+      ]
+    );
+    if (liveCheck.liveChecked && liveCheck.profileExists === false) {
+      return {
+        success: false,
+        error: "Twitter profile unavailable",
+        platform,
+        profileExists: false,
+        liveChecked: true,
+      };
+    }
+
     console.log(`[BD Twitter] Fetching posts for: ${cleanUrl}`);
 
     const snapshotId = await triggerDatasetCollection(
@@ -442,7 +615,14 @@ export async function fetchTwitterPosts(
 
     const data = await pollSnapshot<TwitterPost>(snapshotId, 120000, 5000);
 
-    return { success: true, data, snapshotId, platform };
+    return {
+      success: true,
+      data,
+      snapshotId,
+      platform,
+      profileExists: liveCheck.liveChecked ? true : undefined,
+      liveChecked: liveCheck.liveChecked,
+    };
   } catch (err: any) {
     console.error(`[BD Twitter] Error:`, err.message);
     return { success: false, error: err.message, platform };

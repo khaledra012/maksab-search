@@ -471,7 +471,8 @@ async function multiQuerySearch(
   location: string | undefined,
   label: string,
   useResidential = false,
-  limit = 20
+  limit = 20,
+  page = 1
 ): Promise<Array<{ username: string; displayName: string; bio: string; url: string }>> {
   const variants = buildQueryVariants(query, location, site);
   const seen = new Set<string>();
@@ -479,7 +480,7 @@ async function multiQuerySearch(
 
   const fetchHtml = async (q: string): Promise<string> => {
     // ملاحظة: cr=countrySA يسبب 407 من SERP proxy - تم حذفه
-    const url = buildGoogleSearchUrl({ query: q });
+    const url = buildGoogleSearchUrl({ query: q, page });
     if (useResidential && RESI_USERNAME) {
       try {
         return await residentialRequest(url);
@@ -527,32 +528,64 @@ export async function searchInstagramSERP(query: string, location?: string, limi
 }
 
 // ===== البحث في Google عن حسابات TikTok =====
-export async function searchTikTokSERP(query: string, location?: string, limit = 20): Promise<Array<{
+export async function searchTikTokSERP(query: string, location?: string, limit = 20, page = 1): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
-  return multiQuerySearch("tiktok.com", query, location, "TikTok SERP", false, limit);
+  return multiQuerySearch("tiktok.com", query, location, "TikTok SERP", false, limit, page);
 }
 
 // ===== البحث في Google عن حسابات Snapchat =====
 export async function searchSnapchatSERP(query: string, location?: string, limit = 20): Promise<Array<{
   username: string; displayName: string; bio: string; url: string;
 }>> {
+  const extractSnapchatHandlesFromText = (text: string): string[] => {
+    const handles = new Set<string>();
+    const patterns = [
+      /(?:snapchat|سناب\s*شات|سناب|snap)[\s:：\-–—@]{0,4}([a-zA-Z0-9._-]{3,30})/gi,
+      /(?:username|user|handle)[\s:：\-–—@]{0,4}([a-zA-Z0-9._-]{3,30})/gi,
+    ];
+
+    for (const pattern of patterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) {
+        const handle = (match[1] || "").trim().replace(/^@+/, "");
+        if (!handle || handle.length < 3) continue;
+        if (/^\d+$/.test(handle)) continue;
+        handles.add(handle);
+      }
+    }
+
+    return Array.from(handles);
+  };
+
   const loc = location || "";
   const locAr = loc ? `${loc} السعودية` : "السعودية";
   const locEn = loc ? `${loc} Saudi Arabia` : "Saudi Arabia";
   const queryEn = translateToEnglish(query);
-  // سناب شات: نستخدم site:snapchat.com فقط لأن الاستعلامات بدون site: تُرجع نتائج غير مطابقة
-  const variants = [
+  const genericVariants = buildQueryVariants(query, location, "snapchat.com");
+  const variants = Array.from(new Set([
+    `site:snapchat.com/add "${query} ${locAr}"`,
     `site:snapchat.com/add ${query} ${locAr}`,
     `site:snapchat.com/add ${query} ${loc || "الرياض"}`,
+    `site:snapchat.com/add "${queryEn} ${locEn}"`,
     `site:snapchat.com/add ${queryEn} ${locEn}`,
     `site:snapchat.com/add ${queryEn} ${loc || "riyadh"}`,
     `site:snapchat.com ${query} ${locAr}`,
     `site:snapchat.com ${queryEn} ${locEn}`,
-  ];
+    `snapchat ${query} ${locAr}`,
+    `snapchat ${queryEn} ${locEn}`,
+    `سناب ${query} ${locAr}`,
+    `سناب شات ${query} ${locAr}`,
+    `site:snapchat.com/add ${query}`,
+    `site:snapchat.com/add ${queryEn}`,
+    `site:snapchat.com ${query}`,
+    `site:snapchat.com ${queryEn}`,
+    ...genericVariants,
+  ]));
   const seen = new Set<string>();
   const allResults: Array<{ username: string; displayName: string; bio: string; url: string }> = [];
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+  const targetCollectionLimit = Math.max(limit * 6, 60);
 
   for (let i = 0; i < variants.length; i++) {
     const q = variants[i];
@@ -569,14 +602,53 @@ export async function searchSnapchatSERP(query: string, location?: string, limit
           allResults.push(r);
         }
       }
-      if (allResults.length >= limit) break;
+
+      const genericParsed = parseGoogleResultsGeneric(html);
+      for (const item of genericParsed) {
+        const text = `${item.displayName || ""} ${item.bio || ""} ${item.url || ""}`;
+        const handles = extractSnapchatHandlesFromText(text);
+        for (const handle of handles) {
+          const normalizedHandle = handle.toLowerCase();
+          if (!normalizedHandle || seen.has(normalizedHandle)) continue;
+          if (hasNonSaudiUsername(normalizedHandle)) continue;
+          seen.add(normalizedHandle);
+          allResults.push({
+            username: handle,
+            displayName: item.displayName || handle,
+            bio: item.bio || "",
+            url: `https://www.snapchat.com/add/${handle}`,
+          });
+        }
+      }
+
+      if (allResults.length >= targetCollectionLimit) break;
     } catch (err: any) {
       console.warn(`[Snapchat SERP] query failed: ${q} - ${err.message}`);
     }
   }
 
-  console.log(`[Snapchat SERP] Total unique results: ${allResults.length}`);
-  return allResults.slice(0, limit);
+  const geoFiltered = filterSaudiResults(allResults);
+  const cityFiltered = loc ? filterByCityContext(geoFiltered, loc) : geoFiltered;
+
+  let finalResults = geoFiltered;
+  if (loc) {
+    if (cityFiltered.length >= limit) {
+      finalResults = cityFiltered;
+    } else if (cityFiltered.length > 0) {
+      const seenUsernames = new Set(cityFiltered.map((item) => item.username));
+      const geoFallback = geoFiltered.filter((item) => !seenUsernames.has(item.username));
+      finalResults = [...cityFiltered, ...geoFallback];
+    }
+  }
+
+  if (finalResults.length < limit) {
+    const seenUsernames = new Set(finalResults.map((item) => item.username));
+    const rawFallback = allResults.filter((item) => !seenUsernames.has(item.username));
+    finalResults = [...finalResults, ...rawFallback];
+  }
+
+  console.log(`[Snapchat SERP] Total unique results: ${allResults.length}, after geo/city filter: ${finalResults.length}`);
+  return finalResults.slice(0, limit);
 }
 
 // ===== البحث في Google عن حسابات LinkedIn =====

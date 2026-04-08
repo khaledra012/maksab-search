@@ -104,11 +104,75 @@ function getVerificationBadge(result: any): {
   }
 }
 
+function getConfidenceBadge(result: any): {
+  label: string;
+  className: string;
+  icon: typeof BarChart2;
+} | null {
+  const score =
+    typeof result.confidenceScore === "number" && Number.isFinite(result.confidenceScore)
+      ? Math.round(result.confidenceScore)
+      : null;
+
+  let level: "high" | "medium" | "low" | null =
+    result.confidenceLevel === "high" || result.confidenceLevel === "medium" || result.confidenceLevel === "low"
+      ? result.confidenceLevel
+      : null;
+
+  if (!level && score !== null) {
+    if (score >= 80) level = "high";
+    else if (score >= 60) level = "medium";
+    else level = "low";
+  }
+
+  if (!level) {
+    switch (result.verificationLevel) {
+      case "dataset":
+      case "browser_verified":
+        level = "high";
+        break;
+      case "candidate_only":
+        level = "medium";
+        break;
+      case "serp_fallback":
+        level = "low";
+        break;
+      default:
+        level = null;
+    }
+  }
+
+  if (!level) return null;
+
+  if (level === "high") {
+    return {
+      label: score !== null ? `ثقة ${score}%` : "ثقة عالية",
+      className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      icon: BarChart2,
+    };
+  }
+
+  if (level === "medium") {
+    return {
+      label: score !== null ? `ثقة ${score}%` : "ثقة متوسطة",
+      className: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      icon: BarChart2,
+    };
+  }
+
+  return {
+    label: score !== null ? `ثقة ${score}%` : "ثقة منخفضة",
+    className: "bg-slate-500/15 text-slate-300 border-slate-500/30",
+    icon: BarChart2,
+  };
+}
+
 // ===== مكون بطاقة نتيجة =====
 function ResultCard({ result, onAdd, isDuplicate, platform }: {
   result: any; onAdd: (r: any) => void; isDuplicate?: boolean; platform: typeof PLATFORMS[number];
 }) {
   const verificationBadge = getVerificationBadge(result);
+  const confidenceBadge = getConfidenceBadge(result);
 
   return (
     <Card className={`group transition-all duration-200 ${isDuplicate ? "opacity-60 border-orange-500/30 bg-orange-500/5" : "hover:border-primary/40 hover:shadow-sm"}`}>
@@ -137,6 +201,12 @@ function ResultCard({ result, onAdd, isDuplicate, platform }: {
                   <Badge variant="outline" className={`text-[10px] gap-1 ${verificationBadge.className}`}>
                     <verificationBadge.icon className="w-2.5 h-2.5" />
                     {verificationBadge.label}
+                  </Badge>
+                )}
+                {confidenceBadge && (
+                  <Badge variant="outline" className={`text-[10px] gap-1 ${confidenceBadge.className}`}>
+                    <confidenceBadge.icon className="w-2.5 h-2.5" />
+                    {confidenceBadge.label}
                   </Badge>
                 )}
                 {isDuplicate && (

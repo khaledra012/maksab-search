@@ -51,9 +51,13 @@ export interface LinkedInScrapedData {
   employeesCount: string;
   industry: string;
   website: string;
+  officialPhone: string;
+  phones: string[];
   specialties: string[];
   recentPosts: string[];
   loadedSuccessfully: boolean;
+  liveChecked?: boolean;
+  profileExists?: boolean;
   error?: string;
 }
 
@@ -68,6 +72,8 @@ export interface TwitterScrapedData {
   recentTweets: string[];
   avgLikes: number;
   loadedSuccessfully: boolean;
+  liveChecked?: boolean;
+  profileExists?: boolean;
   error?: string;
 }
 
@@ -87,6 +93,8 @@ export interface TikTokScrapedData {
   }>;
   avgViews: number;
   loadedSuccessfully: boolean;
+  liveChecked?: boolean;
+  profileExists?: boolean;
   error?: string;
 }
 
@@ -284,6 +292,91 @@ function extractNumber(text: string): number {
   return isNaN(num) ? 0 : num;
 }
 
+function decodeEscapedUrl(raw: string): string {
+  return raw
+    .replace(/\\u002F/g, "/")
+    .replace(/\\\//g, "/")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+function isLikelyCompanyWebsite(rawUrl: string, sourcePageUrl = ""): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (!/^https?:$/.test(url.protocol)) return false;
+
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    const sourceHost = (() => {
+      try {
+        return new URL(sourcePageUrl).hostname.toLowerCase().replace(/^www\./, "");
+      } catch {
+        return "";
+      }
+    })();
+
+    if (!host || !host.includes(".")) return false;
+    if (host === sourceHost) return false;
+
+    const blockedHosts = [
+      "linkedin.com",
+      "lnkd.in",
+      "facebook.com",
+      "instagram.com",
+      "x.com",
+      "twitter.com",
+      "tiktok.com",
+      "snapchat.com",
+      "youtube.com",
+      "youtu.be",
+      "google.com",
+      "gstatic.com",
+      "licdn.com",
+    ];
+
+    return !blockedHosts.some((blocked) => host === blocked || host.endsWith(`.${blocked}`));
+  } catch {
+    return false;
+  }
+}
+
+function extractLikelyCompanyWebsite(html: string, sourcePageUrl = ""): string {
+  const normalized = decodeEscapedUrl(html);
+  const candidates = new Set<string>();
+
+  const pushCandidate = (raw: string) => {
+    const candidate = decodeEscapedUrl(raw).replace(/[)\],.;]+$/g, "");
+    if (isLikelyCompanyWebsite(candidate, sourcePageUrl)) {
+      candidates.add(candidate);
+    }
+  };
+
+  const hrefRegex = /href=["'](https?:\/\/[^"'<>]+)["']/gi;
+  let match: RegExpExecArray | null;
+  while ((match = hrefRegex.exec(normalized)) !== null) {
+    pushCandidate(match[1]);
+  }
+
+  const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
+  while ((match = urlRegex.exec(normalized)) !== null) {
+    pushCandidate(match[0]);
+  }
+
+  return Array.from(candidates)[0] || "";
+}
+
+function hasAnyPageSignal(html: string, signals: string[]): boolean {
+  const lower = String(html || "").toLowerCase();
+  return signals.some((signal) => signal && lower.includes(signal.toLowerCase()));
+}
+
+function detectUnavailableProfilePage(
+  html: string,
+  unavailableSignals: string[],
+  evidenceSignals: string[],
+): boolean {
+  return hasAnyPageSignal(html, unavailableSignals) && !hasAnyPageSignal(html, evidenceSignals);
+}
+
 // ===== Website Scraper =====
 export async function scrapeWebsite(url: string): Promise<WebsiteScrapedData> {
   const result: WebsiteScrapedData = {
@@ -404,24 +497,64 @@ export async function scrapeLinkedIn(linkedinUrl: string): Promise<LinkedInScrap
     employeesCount: "",
     industry: "",
     website: "",
+    officialPhone: "",
+    phones: [],
     specialties: [],
     recentPosts: [],
     loadedSuccessfully: false,
+    liveChecked: false,
+    profileExists: undefined,
   };
 
   try {
     let html = "";
     try {
       html = await fetchWithScrapingBrowser(linkedinUrl);
+      result.liveChecked = true;
     } catch {
       html = await fetchViaProxy(linkedinUrl);
+      result.liveChecked = true;
     }
+
+    if (
+      detectUnavailableProfilePage(
+        html,
+        [
+          "page not found",
+          "this page doesn't exist",
+          "this page isn’t available",
+          "this page isn't available",
+          "profile unavailable",
+          "member profile unavailable",
+          "404:",
+          "not found",
+        ],
+        [
+          "linkedin.com/company/",
+          "linkedin.com/showcase/",
+          "linkedin.com/school/",
+          "og:title",
+          "og:description",
+          "followers",
+          "employees",
+          "\"companyname\"",
+        ],
+      )
+    ) {
+      result.profileExists = false;
+      result.loadedSuccessfully = false;
+      result.error = "LinkedIn profile unavailable";
+      return result;
+    }
+
+    result.profileExists = result.liveChecked ? true : undefined;
 
     const ogTitle = extractMetaTag(html, "og:title");
     const ogDescription = extractMetaTag(html, "og:description");
+    const bodyText = extractTextFromHTML(html);
 
     result.companyName = ogTitle?.replace(" | LinkedIn", "").trim() || "";
-    result.about = ogDescription || extractTextFromHTML(html).slice(0, 500);
+    result.about = ogDescription || bodyText.slice(0, 500);
 
     // استخراج عدد المتابعين
     const followersMatch = html.match(/([\d,\.]+[KkMm]?)\s*(?:followers|متابع)/i);
@@ -435,6 +568,22 @@ export async function scrapeLinkedIn(linkedinUrl: string): Promise<LinkedInScrap
     const industryMatch = html.match(/"industry":"([^"]+)"/);
     result.industry = industryMatch ? industryMatch[1] : "";
 
+    result.website = extractLikelyCompanyWebsite(html, linkedinUrl);
+
+    let phones = extractPhones(`${html} ${bodyText} ${result.about}`);
+    if (!phones.length && result.website) {
+      try {
+        const websiteData = await scrapeWebsite(result.website);
+        if (websiteData.loadedSuccessfully && websiteData.phones.length > 0) {
+          phones = websiteData.phones;
+        }
+      } catch {
+        // Ignore website extraction failures and keep LinkedIn result usable.
+      }
+    }
+
+    result.phones = phones;
+    result.officialPhone = phones[0] || "";
     result.loadedSuccessfully = !!result.companyName;
 
   } catch (err) {
@@ -652,7 +801,7 @@ export async function scrapeAllPlatforms(params: {
       scrapeLinkedIn(params.linkedinUrl)
         .then(d => { results.linkedin = d; })
         .catch(err => {
-          results.linkedin = { companyName: "", tagline: "", about: "", followersCount: 0, employeesCount: "", industry: "", website: "", specialties: [], recentPosts: [], loadedSuccessfully: false, error: String(err) };
+          results.linkedin = { companyName: "", tagline: "", about: "", followersCount: 0, employeesCount: "", industry: "", website: "", officialPhone: "", phones: [], specialties: [], recentPosts: [], loadedSuccessfully: false, error: String(err) };
         })
     );
   }
